@@ -1,7 +1,7 @@
 ---
 title: "Payment Processing and Provider Integration"
 sidebarTitle: "Payments"
-description: "Shockly Shop uses a pluggable PaymentProvider interface so any gateway can be swapped in. Learn about initiation, verification, and the built-in mock provider."
+description: "Shockly Shop uses a pluggable PaymentProvider interface so any gateway can be swapped in. Covers initiation, verification, and the built-in mock provider."
 ---
 
 Shockly Shop's payment layer is built around a clean provider abstraction. The `PaymentsService` in `apps/api` does not call any payment gateway directly — instead it delegates to whatever class implements the `PaymentProvider` interface. Swapping from the development mock provider to Zarinpal, Stripe, or any other real gateway requires only implementing two methods and rebinding one NestJS dependency injection token.
@@ -135,7 +135,7 @@ No changes to `PaymentsService` are needed — the interface contract ensures fu
 
 <Steps>
   <Step title="Initiate — POST /api/payments/initiate">
-    The frontend posts `{ orderId, callbackUrl }` after creating an order. `PaymentsService` looks up the order total, calls `paymentProvider.initiatePayment(amount, orderId, callbackUrl)`, persists a `payments` row with `status: "pending"`, and returns:
+    The frontend posts `{ orderId }` after creating an order. `PaymentsService` looks up the order total, calls `paymentProvider.initiatePayment(amount, orderId, callbackUrl)`, persists a `payments` row with `status: "pending"`, and returns:
 
     ```json
     {
@@ -152,7 +152,7 @@ No changes to `PaymentsService` are needed — the interface contract ensures fu
   </Step>
 
   <Step title="Verify — POST /api/payments/verify">
-    When the customer returns from the gateway, the `/checkout/result` page calls `POST /api/payments/verify` with `{ providerRef, orderId }`. `PaymentsService`:
+    When the customer returns from the gateway, the `/checkout/result` page calls `POST /api/payments/verify` with `{ ref }`. `PaymentsService`:
 
     1. Looks up the order by `orderId`.
     2. Calls `paymentProvider.verifyPayment(providerRef, orderTotal)`.

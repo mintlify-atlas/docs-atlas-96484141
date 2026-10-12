@@ -1,7 +1,7 @@
 ---
-title: "Shockly Shop REST API Reference Overview"
+title: "Shockly Shop REST API Overview and Getting Started"
 sidebarTitle: "Overview"
-description: "Base URL, API versioning, unified response envelope, error codes, rate limiting, authentication, pagination, and all available resource groups for the Shockly Shop API."
+description: "Explore the Shockly Shop REST API: base URL, response envelope, error format, rate limiting, pagination defaults, and an overview of all resource groups."
 ---
 
 The Shockly Shop API is a RESTful HTTP API built on **NestJS + Fastify** backed by **PostgreSQL** and **Drizzle ORM**. Every endpoint lives under the `/api` prefix and returns JSON. Whether you're building a storefront, an admin dashboard, or a mobile app, everything you need — products, cart, orders, payments, discounts, and more — is available through this single API.
@@ -63,18 +63,21 @@ The API ships with a full **Swagger UI** powered by `@nestjs/swagger`. You can b
 
 ### Paginated list response
 
-Paginated endpoints (e.g. `/api/products`, `/api/orders`) spread `total`, `page`, and `limit` alongside the `data` array:
+Paginated endpoints (e.g. `/api/products`) spread pagination metadata alongside a `data` object that contains the resource array. The `TransformInterceptor` spreads the controller's return value, so `page`, `per_page`, `total`, `total_pages`, and `data` all appear at the top level:
 
 ```json
 {
   "status": "success",
-  "data": [
-    { "id": "9f4e2a1b-...", "name": "Samsung Galaxy S24" },
-    { "id": "3c7d1e0f-...", "name": "iPhone 15 Pro" }
-  ],
-  "total": 42,
   "page": 2,
-  "limit": 10
+  "per_page": 4,
+  "total": 42,
+  "total_pages": 11,
+  "data": {
+    "products": [
+      { "id": "9f4e2a1b-...", "name": "Samsung Galaxy S24" },
+      { "id": "3c7d1e0f-...", "name": "iPhone 15 Pro" }
+    ]
+  }
 }
 ```
 
@@ -173,8 +176,10 @@ Endpoints that return lists accept the following query parameters:
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `page` | `number` | `1` | Page number (1-indexed) |
-| `limit` | `number` | `4` | Number of items per page |
+| `limit` | `number` | `4` | Number of items per page (returned as `per_page` in the response) |
 | `sort` | `string` | `-createdAt` | Field to sort by. Prefix with `-` for descending, no prefix for ascending |
+
+The response always includes `page`, `per_page`, `total`, and `total_pages` as top-level fields alongside `data`.
 
 **Example** — fetch the second page of products, 10 per page, sorted by price descending:
 

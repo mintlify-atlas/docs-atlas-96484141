@@ -24,7 +24,6 @@ curl https://api.shockly.shop/api/categories
 
 ```json
 {
-  "status": "success",
   "data": {
     "categories": [
       {
@@ -70,14 +69,15 @@ curl https://api.shockly.shop/api/categories/b3e1f2a0-1234-5678-abcd-00000000000
 
 ```json
 {
-  "status": "success",
   "data": {
-    "id": "b3e1f2a0-1234-5678-abcd-000000000001",
-    "name": "Mobile Phones",
-    "slugname": "mobile-phones",
-    "icon": "📱",
-    "createdAt": "2024-01-01T00:00:00.000Z",
-    "updatedAt": "2024-01-01T00:00:00.000Z"
+    "category": {
+      "id": "b3e1f2a0-1234-5678-abcd-000000000001",
+      "name": "Mobile Phones",
+      "slugname": "mobile-phones",
+      "icon": "📱",
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z"
+    }
   }
 }
 ```
@@ -120,14 +120,15 @@ curl -X POST https://api.shockly.shop/api/categories \
 
 ```json
 {
-  "status": "success",
   "data": {
-    "id": "b3e1f2a0-1234-5678-abcd-000000000003",
-    "name": "Tablets",
-    "slugname": "tablets",
-    "icon": "📟",
-    "createdAt": "2024-07-01T12:00:00.000Z",
-    "updatedAt": "2024-07-01T12:00:00.000Z"
+    "category": {
+      "id": "b3e1f2a0-1234-5678-abcd-000000000003",
+      "name": "Tablets",
+      "slugname": "tablets",
+      "icon": "📟",
+      "createdAt": "2024-07-01T12:00:00.000Z",
+      "updatedAt": "2024-07-01T12:00:00.000Z"
+    }
   }
 }
 ```
@@ -161,7 +162,16 @@ curl -X DELETE https://api.shockly.shop/api/categories/b3e1f2a0-1234-5678-abcd-0
 
 ```json
 {
-  "status": "success"
+  "data": {
+    "category": {
+      "id": "b3e1f2a0-1234-5678-abcd-000000000003",
+      "name": "Tablets",
+      "slugname": "tablets",
+      "icon": "📟",
+      "createdAt": "2024-07-01T12:00:00.000Z",
+      "updatedAt": "2024-07-01T12:00:00.000Z"
+    }
+  }
 }
 ```
 
@@ -221,7 +231,6 @@ curl "https://api.shockly.shop/api/subcategories?category=b3e1f2a0-1234-5678-abc
 
 ```json
 {
-  "status": "success",
   "data": {
     "subcategories": [
       {
@@ -283,14 +292,15 @@ curl -X POST https://api.shockly.shop/api/subcategories \
 
 ```json
 {
-  "status": "success",
   "data": {
-    "id": "c4f2a3b1-2345-6789-bcde-000000000003",
-    "name": "Android",
-    "slugname": "android",
-    "category": "b3e1f2a0-1234-5678-abcd-000000000001",
-    "createdAt": "2024-07-01T12:30:00.000Z",
-    "updatedAt": "2024-07-01T12:30:00.000Z"
+    "subcategory": {
+      "id": "c4f2a3b1-2345-6789-bcde-000000000003",
+      "name": "Android",
+      "slugname": "android",
+      "category": "b3e1f2a0-1234-5678-abcd-000000000001",
+      "createdAt": "2024-07-01T12:30:00.000Z",
+      "updatedAt": "2024-07-01T12:30:00.000Z"
+    }
   }
 }
 ```
@@ -324,7 +334,16 @@ curl -X DELETE https://api.shockly.shop/api/subcategories/c4f2a3b1-2345-6789-bcd
 
 ```json
 {
-  "status": "success"
+  "data": {
+    "subcategory": {
+      "id": "c4f2a3b1-2345-6789-bcde-000000000003",
+      "name": "Android",
+      "slugname": "android",
+      "category": "b3e1f2a0-1234-5678-abcd-000000000001",
+      "createdAt": "2024-07-01T12:30:00.000Z",
+      "updatedAt": "2024-07-01T12:30:00.000Z"
+    }
+  }
 }
 ```
 

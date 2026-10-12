@@ -1,7 +1,7 @@
 ---
-title: "Discounts API: Create and Validate Promo Codes"
+title: "Discounts API: Create, Validate, and Delete Promo Codes"
 sidebarTitle: "Discounts"
-description: "Admin endpoints to create and delete discount codes, plus a public validate endpoint to check a code's value before checkout."
+description: "Admin endpoints to create and delete percentage or fixed discount codes, plus a public validate endpoint to calculate savings before checkout."
 ---
 
 Most discount endpoints are restricted to **admin** users (`GET /api/discounts`, `POST /api/discounts`, `DELETE /api/discounts/:id`). The one public endpoint — `POST /api/discounts/validate` — requires no authentication and is designed to be called from the storefront at checkout to calculate the effective discount before an order is placed.

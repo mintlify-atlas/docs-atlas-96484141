@@ -1,7 +1,7 @@
 ---
-title: "Cart API: Add, Update, and Remove Cart Items"
+title: "Cart API: Add, Update, and Remove Items from Your Cart"
 sidebarTitle: "Cart"
-description: "Manage the authenticated user's shopping cart — add products, update quantities, remove items, or clear the entire cart."
+description: "Manage the authenticated user's shopping cart — add products, update item quantities, remove individual items, or clear the entire cart in one call."
 ---
 
 Every cart endpoint requires a valid JWT attached as `Authorization: Bearer <accessToken>`. The cart is scoped strictly to the authenticated user; one user cannot read or modify another user's cart. The service automatically increments an existing item's quantity when the same product is added a second time, and removes the item entirely when its quantity is set to `0`.

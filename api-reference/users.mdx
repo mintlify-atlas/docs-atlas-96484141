@@ -10,7 +10,7 @@ The Users module exposes endpoints for reading and updating user accounts. All r
 
 ## GET /api/users
 
-Retrieve a paginated list of all registered users. **Admin only.**
+Retrieve a list of all registered users. **Admin only.**
 
 ### Request headers
 
@@ -29,20 +29,21 @@ curl https://api.shockly.shop/api/users \
 
 ```json
 {
-  "status": "success",
-  "data": [
-    {
-      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-      "firstname": "Ali",
-      "lastname": "Rezaei",
-      "username": "ali123",
-      "phoneNumber": "09123456789",
-      "address": "Tehran, Valiasr Street",
-      "role": "customer",
-      "createdAt": "2024-06-01T10:00:00.000Z",
-      "updatedAt": "2024-06-01T10:00:00.000Z"
-    }
-  ]
+  "data": {
+    "users": [
+      {
+        "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+        "firstname": "Ali",
+        "lastname": "Rezaei",
+        "username": "ali123",
+        "phoneNumber": "09123456789",
+        "address": "Tehran, Valiasr Street",
+        "role": "customer",
+        "createdAt": "2024-06-01T10:00:00.000Z",
+        "updatedAt": "2024-06-01T10:00:00.000Z"
+      }
+    ]
+  }
 }
 ```
 
@@ -69,17 +70,18 @@ curl https://api.shockly.shop/api/users/me \
 
 ```json
 {
-  "status": "success",
   "data": {
-    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-    "firstname": "Ali",
-    "lastname": "Rezaei",
-    "username": "ali123",
-    "phoneNumber": "09123456789",
-    "address": "Tehran, Valiasr Street",
-    "role": "customer",
-    "createdAt": "2024-06-01T10:00:00.000Z",
-    "updatedAt": "2024-06-01T10:00:00.000Z"
+    "user": {
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "firstname": "Ali",
+      "lastname": "Rezaei",
+      "username": "ali123",
+      "phoneNumber": "09123456789",
+      "address": "Tehran, Valiasr Street",
+      "role": "customer",
+      "createdAt": "2024-06-01T10:00:00.000Z",
+      "updatedAt": "2024-06-01T10:00:00.000Z"
+    }
   }
 }
 ```
@@ -113,17 +115,18 @@ curl https://api.shockly.shop/api/users/a1b2c3d4-e5f6-7890-abcd-ef1234567890 \
 
 ```json
 {
-  "status": "success",
   "data": {
-    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-    "firstname": "Ali",
-    "lastname": "Rezaei",
-    "username": "ali123",
-    "phoneNumber": "09123456789",
-    "address": "Tehran, Valiasr Street",
-    "role": "customer",
-    "createdAt": "2024-06-01T10:00:00.000Z",
-    "updatedAt": "2024-06-01T10:00:00.000Z"
+    "user": {
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "firstname": "Ali",
+      "lastname": "Rezaei",
+      "username": "ali123",
+      "phoneNumber": "09123456789",
+      "address": "Tehran, Valiasr Street",
+      "role": "customer",
+      "createdAt": "2024-06-01T10:00:00.000Z",
+      "updatedAt": "2024-06-01T10:00:00.000Z"
+    }
   }
 }
 ```
@@ -178,17 +181,18 @@ curl -X PATCH https://api.shockly.shop/api/users/me \
 
 ```json
 {
-  "status": "success",
   "data": {
-    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-    "firstname": "Ali",
-    "lastname": "Rezaei",
-    "username": "ali123",
-    "phoneNumber": "09199999999",
-    "address": "Isfahan, Chahar Bagh Street",
-    "role": "customer",
-    "createdAt": "2024-06-01T10:00:00.000Z",
-    "updatedAt": "2024-07-15T08:30:00.000Z"
+    "user": {
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "firstname": "Ali",
+      "lastname": "Rezaei",
+      "username": "ali123",
+      "phoneNumber": "09199999999",
+      "address": "Isfahan, Chahar Bagh Street",
+      "role": "customer",
+      "createdAt": "2024-06-01T10:00:00.000Z",
+      "updatedAt": "2024-07-15T08:30:00.000Z"
+    }
   }
 }
 ```

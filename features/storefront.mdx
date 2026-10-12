@@ -19,7 +19,6 @@ The storefront is grouped under the `(storefront)` route group, keeping the layo
 | `/checkout` | Checkout — displays user profile details (read-only), a delivery date picker, then calls `POST /api/orders` + `POST /api/payments/initiate` on submit. |
 | `/checkout/result` | Post-payment result — reads `?success=` and `?ref=` query params, calls `POST /api/payments/verify`, shows success or failure UI, then clears the Redux cart and redirects home. |
 | `/category/[id]` | Category product listing — same product grid scoped to a single category UUID. |
-| `/authentication` | Login / Register — JWT-based authentication; unauthenticated users trying to reach `/checkout` are redirected here with `?checkout=true`. |
 
 ## Product Listing
 

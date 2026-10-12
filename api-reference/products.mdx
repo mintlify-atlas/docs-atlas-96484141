@@ -44,7 +44,10 @@ curl "https://api.shockly.shop/api/products?limit=8&page=1&sort=-price&category=
 
 ```json
 {
-  "status": "success",
+  "page": 1,
+  "per_page": 8,
+  "total": 42,
+  "total_pages": 6,
   "data": {
     "products": [
       {
@@ -66,10 +69,7 @@ curl "https://api.shockly.shop/api/products?limit=8&page=1&sort=-price&category=
         "createdAt": "2024-05-10T09:00:00.000Z",
         "updatedAt": "2024-06-01T12:00:00.000Z"
       }
-    ],
-    "total": 42,
-    "page": 1,
-    "limit": 8
+    ]
   }
 }
 ```
@@ -96,22 +96,23 @@ curl https://api.shockly.shop/api/products/d4e5f6a7-b8c9-0123-def0-111111111111
 
 ```json
 {
-  "status": "success",
   "data": {
-    "id": "d4e5f6a7-b8c9-0123-def0-111111111111",
-    "name": "Samsung Galaxy S24",
-    "slugname": "samsung-galaxy-s24",
-    "brand": "Samsung",
-    "description": "A flagship Android smartphone.",
-    "price": "25000000.00",
-    "quantity": 10,
-    "thumbnail": "/images/products/thumbnails/s24-thumb.jpg",
-    "images": ["/images/products/images/s24-1.jpg"],
-    "rating": { "rate": 4.7, "count": 230 },
-    "category": "b3e1f2a0-1234-5678-abcd-000000000001",
-    "subcategory": "c4f2a3b1-2345-6789-bcde-000000000002",
-    "createdAt": "2024-05-10T09:00:00.000Z",
-    "updatedAt": "2024-06-01T12:00:00.000Z"
+    "product": {
+      "id": "d4e5f6a7-b8c9-0123-def0-111111111111",
+      "name": "Samsung Galaxy S24",
+      "slugname": "samsung-galaxy-s24",
+      "brand": "Samsung",
+      "description": "A flagship Android smartphone.",
+      "price": "25000000.00",
+      "quantity": 10,
+      "thumbnail": "/images/products/thumbnails/s24-thumb.jpg",
+      "images": ["/images/products/images/s24-1.jpg"],
+      "rating": { "rate": 4.7, "count": 230 },
+      "category": "b3e1f2a0-1234-5678-abcd-000000000001",
+      "subcategory": "c4f2a3b1-2345-6789-bcde-000000000002",
+      "createdAt": "2024-05-10T09:00:00.000Z",
+      "updatedAt": "2024-06-01T12:00:00.000Z"
+    }
   }
 }
 ```
@@ -192,25 +193,26 @@ curl -X POST https://api.shockly.shop/api/products \
 
 ```json
 {
-  "status": "success",
   "data": {
-    "id": "d4e5f6a7-b8c9-0123-def0-111111111111",
-    "name": "Samsung Galaxy S24",
-    "slugname": "samsung-galaxy-s24",
-    "brand": "Samsung",
-    "description": "A flagship Android smartphone.",
-    "price": "25000000.00",
-    "quantity": 10,
-    "thumbnail": "/images/products/thumbnails/s24-thumb.jpg",
-    "images": [
-      "/images/products/images/s24-1.jpg",
-      "/images/products/images/s24-2.jpg"
-    ],
-    "rating": { "rate": 0, "count": 0 },
-    "category": "b3e1f2a0-1234-5678-abcd-000000000001",
-    "subcategory": "c4f2a3b1-2345-6789-bcde-000000000002",
-    "createdAt": "2024-06-01T10:00:00.000Z",
-    "updatedAt": "2024-06-01T10:00:00.000Z"
+    "product": {
+      "id": "d4e5f6a7-b8c9-0123-def0-111111111111",
+      "name": "Samsung Galaxy S24",
+      "slugname": "samsung-galaxy-s24",
+      "brand": "Samsung",
+      "description": "A flagship Android smartphone.",
+      "price": "25000000.00",
+      "quantity": 10,
+      "thumbnail": "/images/products/thumbnails/s24-thumb.jpg",
+      "images": [
+        "/images/products/images/s24-1.jpg",
+        "/images/products/images/s24-2.jpg"
+      ],
+      "rating": { "rate": 0, "count": 0 },
+      "category": "b3e1f2a0-1234-5678-abcd-000000000001",
+      "subcategory": "c4f2a3b1-2345-6789-bcde-000000000002",
+      "createdAt": "2024-06-01T10:00:00.000Z",
+      "updatedAt": "2024-06-01T10:00:00.000Z"
+    }
   }
 }
 ```
@@ -285,22 +287,23 @@ curl -X PATCH https://api.shockly.shop/api/products/d4e5f6a7-b8c9-0123-def0-1111
 
 ```json
 {
-  "status": "success",
   "data": {
-    "id": "d4e5f6a7-b8c9-0123-def0-111111111111",
-    "name": "Samsung Galaxy S24",
-    "slugname": "samsung-galaxy-s24",
-    "brand": "Samsung",
-    "description": "A flagship Android smartphone.",
-    "price": "22000000.00",
-    "quantity": 5,
-    "thumbnail": "/images/products/thumbnails/s24-thumb.jpg",
-    "images": ["/images/products/images/s24-1.jpg"],
-    "rating": { "rate": 4.7, "count": 230 },
-    "category": "b3e1f2a0-1234-5678-abcd-000000000001",
-    "subcategory": "c4f2a3b1-2345-6789-bcde-000000000002",
-    "createdAt": "2024-05-10T09:00:00.000Z",
-    "updatedAt": "2024-07-15T08:30:00.000Z"
+    "product": {
+      "id": "d4e5f6a7-b8c9-0123-def0-111111111111",
+      "name": "Samsung Galaxy S24",
+      "slugname": "samsung-galaxy-s24",
+      "brand": "Samsung",
+      "description": "A flagship Android smartphone.",
+      "price": "22000000.00",
+      "quantity": 5,
+      "thumbnail": "/images/products/thumbnails/s24-thumb.jpg",
+      "images": ["/images/products/images/s24-1.jpg"],
+      "rating": { "rate": 4.7, "count": 230 },
+      "category": "b3e1f2a0-1234-5678-abcd-000000000001",
+      "subcategory": "c4f2a3b1-2345-6789-bcde-000000000002",
+      "createdAt": "2024-05-10T09:00:00.000Z",
+      "updatedAt": "2024-07-15T08:30:00.000Z"
+    }
   }
 }
 ```
@@ -334,7 +337,24 @@ curl -X DELETE https://api.shockly.shop/api/products/d4e5f6a7-b8c9-0123-def0-111
 
 ```json
 {
-  "status": "success"
+  "data": {
+    "product": {
+      "id": "d4e5f6a7-b8c9-0123-def0-111111111111",
+      "name": "Samsung Galaxy S24",
+      "slugname": "samsung-galaxy-s24",
+      "brand": "Samsung",
+      "description": "A flagship Android smartphone.",
+      "price": "22000000.00",
+      "quantity": 5,
+      "thumbnail": "/images/products/thumbnails/s24-thumb.jpg",
+      "images": ["/images/products/images/s24-1.jpg"],
+      "rating": { "rate": 4.7, "count": 230 },
+      "category": "b3e1f2a0-1234-5678-abcd-000000000001",
+      "subcategory": "c4f2a3b1-2345-6789-bcde-000000000002",
+      "createdAt": "2024-05-10T09:00:00.000Z",
+      "updatedAt": "2024-07-15T08:30:00.000Z"
+    }
+  }
 }
 ```
 

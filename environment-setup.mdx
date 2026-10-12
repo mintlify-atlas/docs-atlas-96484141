@@ -1,5 +1,5 @@
 ---
-title: "Configure Shockly Shop Environment Variables"
+title: "Environment Variables Reference for Shockly Shop API"
 sidebarTitle: "Environment"
 description: "A complete reference for every environment variable in apps/api/.env — database, Redis, JWT secrets, file uploads, and how to configure each one."
 ---
@@ -17,13 +17,13 @@ All runtime configuration for the Shockly Shop API is read from a single file: `
 </ParamField>
 
 <ParamField body="NODE_ENV" type="string" default="development">
-  The runtime environment mode. Accepted values are `development` and `production`. In `development` mode Pino logs are pretty-printed; in `production` they emit structured JSON. Certain NestJS security defaults (e.g. stack traces in error responses) are also gated on this value.
+  The runtime environment mode. Accepted values are `development`, `production`, and `test`. In `development` mode Pino logs are pretty-printed; in `production` they emit structured JSON. Certain NestJS security defaults (e.g. stack traces in error responses) are also gated on this value.
 </ParamField>
 
 <ParamField body="DATABASE_URL" type="string" required>
   Full PostgreSQL connection string used by Drizzle ORM and the `postgres` driver. Must include the username, password, host, port, and database name. The Docker Compose service creates the `shockly` user and `shockly_shop` database automatically, so the default value works with no changes when using Docker.
 
-  ```
+  ```ini
   DATABASE_URL=postgresql://shockly:shockly123@localhost:5432/shockly_shop
   ```
 </ParamField>
@@ -76,7 +76,7 @@ openssl rand -base64 32
 
 Example output:
 
-```
+```text
 K7fQz2mXpL9wRvN3oAeYtG8cHdJsBuI0
 ```
 
@@ -92,7 +92,7 @@ bun -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 
 The `DATABASE_URL` follows the standard PostgreSQL connection string format:
 
-```
+```text
 postgresql://USER:PASSWORD@HOST:PORT/DBNAME
 ```
 
@@ -112,7 +112,7 @@ For a production deployment with a managed database (e.g. Supabase, Railway, Neo
 
 The Next.js app in `apps/web` communicates with the API over HTTP. The base URL is hardcoded in:
 
-```
+```text
 apps/web/src/api/constants/index.ts
 ```
 

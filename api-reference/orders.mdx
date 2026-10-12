@@ -1,7 +1,7 @@
 ---
-title: "Orders API: Create and Manage Customer Orders"
+title: "Orders API: Create, Retrieve, and Manage Customer Orders"
 sidebarTitle: "Orders"
-description: "Create customer orders, retrieve order details, and let admins paginate all orders or toggle delivery status."
+description: "Create customer orders from product line items, retrieve order details by ID, and let admins paginate all orders or toggle delivery status."
 ---
 
 Every order endpoint requires a valid JWT (`Authorization: Bearer <accessToken>`). Role-based access applies: **admin** users can list all orders and update delivery status, while **customers** can create orders and look up any individual order by ID. The `status` field on an order moves through its lifecycle automatically — do not try to set it directly; it is driven by the payment flow.
@@ -234,7 +234,7 @@ Marks an order's physical delivery status. Requires the `admin` role. This endpo
     "order": {
       "id": "b2c3d4e5-0000-0000-0000-000000000001",
       "deliveryStatus": true,
-      "status": "shipped",
+      "status": "paid",
       "updatedAt": "2024-06-20T14:00:00.000Z"
     }
   }

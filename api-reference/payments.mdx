@@ -1,7 +1,7 @@
 ---
-title: "Payments API: Initiate and Verify Transactions"
+title: "Payments API: Initiate and Verify Order Transactions"
 sidebarTitle: "Payments"
-description: "Initiate a payment for an order and receive a gateway redirect URL, then verify the transaction using the provider reference."
+description: "Initiate a payment session for an order to receive a gateway redirect URL, then verify the completed transaction using the provider reference string."
 ---
 
 Both payment endpoints require a valid JWT (`Authorization: Bearer <accessToken>`). The payments module is built around an injectable `PaymentProvider` interface, making it straightforward to swap the mock provider for a real gateway (e.g. Zarinpal) without touching any other code. In development and test environments the mock provider is active and **always returns a successful payment**.

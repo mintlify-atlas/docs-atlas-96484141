@@ -1,10 +1,10 @@
 ---
-title: "Cart and Checkout Flow in Shockly Shop"
+title: "Cart and Checkout: Persistence, Operations, and Payment Flow"
 sidebarTitle: "Cart & Checkout"
-description: "How Shockly Shop handles cart persistence, server-side cart operations, discount code validation, and the full checkout-to-payment flow."
+description: "How Shockly Shop handles cart persistence, server-side cart operations, and the full checkout-to-payment flow for authenticated customers."
 ---
 
-Shockly Shop implements a dual-layer cart and checkout workflow. Cart state is maintained both on the frontend (Redux + `redux-persist`) for instant UI responsiveness and on the server (NestJS `/api/cart` endpoints) for authenticated users, ensuring that a customer's basket is never lost when they switch devices or refresh the page. Checkout converts that cart into an order, optionally applies a discount code, and hands off to the payment provider.
+Shockly Shop implements a dual-layer cart and checkout workflow. Cart state is maintained both on the frontend (Redux + `redux-persist`) for instant UI responsiveness and on the server (NestJS `/api/cart` endpoints) for authenticated users, ensuring that a customer's basket is never lost when they switch devices or refresh the page. Checkout converts that cart into an order and hands off to the payment provider.
 
 ## Cart Persistence
 
@@ -78,10 +78,6 @@ async addItem(userId: string, dto: AddToCartDto) {
     The "Confirm and continue" button links to `/checkout`. Unauthenticated users are detected via `localStorage.getItem("loginUser")` and automatically redirected to `/authentication?checkout=true` after a 3-second grace period; after login they are returned directly to checkout.
   </Step>
 
-  <Step title="Optionally apply a discount code">
-    Before submitting, the customer can enter a promo code. The frontend calls `POST /api/discounts/validate` with `{ code, orderAmount }`. On success the API returns `{ discountAmount, finalAmount }` which the UI displays as a discount line in the summary.
-  </Step>
-
   <Step title="Choose a delivery date">
     The checkout form includes a `DatePicker` (react-multi-date-picker, Persian calendar) that enforces a minimum date of today + 3 days. The selected date is submitted as a Unix timestamp.
   </Step>
@@ -99,7 +95,7 @@ async addItem(userId: string, dto: AddToCartDto) {
   </Step>
 
   <Step title="Initiate payment — POST /api/payments/initiate">
-    Immediately after order creation, the frontend POSTs `{ orderId, callbackUrl }` to `/api/payments/initiate`. The response includes a `redirectUrl` (the payment gateway URL) and a `providerRef` (the provider's transaction reference).
+    Immediately after order creation, the frontend POSTs `{ orderId }` to `/api/payments/initiate`. The response includes a `redirectUrl` (the payment gateway URL) and a `providerRef` (the provider's transaction reference).
 
     ```typescript
     const paymentRes = await instance.post("/payments/initiate", { orderId });
@@ -112,7 +108,7 @@ async addItem(userId: string, dto: AddToCartDto) {
   </Step>
 
   <Step title="Verify payment — POST /api/payments/verify">
-    The `/checkout/result` page reads `success` and `ref` from the URL. If `success === "true"`, it calls `POST /api/payments/verify` with `{ providerRef, orderId }`. On a successful verify:
+    The `/checkout/result` page reads `success` and `ref` from the URL. If `success === "true"`, it calls `POST /api/payments/verify` with `{ ref }`. On a successful verify:
     - The payment record is updated to `status: "success"`.
     - The order is updated to `status: "paid"` and `deliveryStatus: false`.
     - The Redux cart is cleared (`dispatch(clear())`).
@@ -122,35 +118,4 @@ async addItem(userId: string, dto: AddToCartDto) {
   </Step>
 </Steps>
 
-## Discount Application
 
-A discount code is validated before the order is created so the discounted total is used when building the order. The validation endpoint checks four conditions server-side:
-
-1. The code exists and `isActive === true`.
-2. The code has not expired (`expiresAt` is null or in the future).
-3. The usage cap has not been reached (`usedCount < maxUses`, or `maxUses` is null for unlimited).
-4. The order amount meets any `minOrderAmount` threshold.
-
-```typescript
-// POST /api/discounts/validate — request body
-{
-  "code": "WELCOME10",
-  "orderAmount": 5000000
-}
-
-// Successful response
-{
-  "data": {
-    "valid": true,
-    "discountAmount": 500000,
-    "finalAmount": 4500000,
-    "discount": { "code": "WELCOME10", "type": "percentage", "value": "10.00", ... }
-  }
-}
-```
-
-Once the validated `finalAmount` is known, the frontend uses that figure as the order total before posting to `POST /api/orders`. After the order is created successfully, the API increments `usedCount` on the discount row via `applyDiscount(code)`.
-
-<Warning>
-  Discount validation is intentionally separated from order creation. Always call `POST /api/discounts/validate` **before** `POST /api/orders` and use the returned `finalAmount` as the order total. Submitting an order without validating first will not apply any discount.
-</Warning>

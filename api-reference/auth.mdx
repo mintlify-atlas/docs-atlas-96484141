@@ -4,7 +4,7 @@ sidebarTitle: "Auth"
 description: "Complete reference for Shockly Shop authentication: sign up a new account, log in, refresh your JWT token pair, and log out securely."
 ---
 
-The Auth module handles all identity-related operations in Shockly Shop. Every endpoint lives under `/api/auth`. Signup and login return both an **access token** (short-lived) and a **refresh token** (long-lived) together with the sanitized user object. Protected endpoints such as `token` and `logout` require you to pass the appropriate JWT in the `Authorization: Bearer <token>` header.
+The Auth module handles all identity-related operations in Shockly Shop. Every endpoint lives under `/api/auth`. Signup and login return both an **access token** (short-lived) and a **refresh token** (long-lived) together with the sanitized user object. The `POST /api/auth/token` endpoint reads the refresh token from the **request body**. The `POST /api/auth/logout` endpoint requires the access token in the `Authorization: Bearer <token>` header.
 
 ---
 
@@ -27,7 +27,7 @@ Register a new customer account. Returns a token pair and the newly created user
 </ParamField>
 
 <ParamField body="password" type="string" required>
-  Plain-text password. Must be at least **6 characters** long. The API stores a bcrypt hash — the raw value is never persisted.
+  Plain-text password. Must be at least **6 characters** long. The API stores a hashed value — the raw value is never persisted.
 </ParamField>
 
 <ParamField body="phoneNumber" type="string">
@@ -57,12 +57,11 @@ curl -X POST https://api.shockly.shop/api/auth/signup \
 
 ```json
 {
-  "status": "success",
+  "token": {
+    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+  },
   "data": {
-    "token": {
-      "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-      "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-    },
     "user": {
       "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
       "firstname": "Ali",
@@ -109,12 +108,11 @@ curl -X POST https://api.shockly.shop/api/auth/login \
 
 ```json
 {
-  "status": "success",
+  "token": {
+    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+  },
   "data": {
-    "token": {
-      "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-      "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-    },
     "user": {
       "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
       "firstname": "Ali",
@@ -134,19 +132,22 @@ curl -X POST https://api.shockly.shop/api/auth/login \
 
 ## POST /api/auth/token
 
-Exchange a valid **refresh token** for a brand-new access/refresh token pair. Pass the refresh token as a Bearer token in the `Authorization` header. The old refresh token is invalidated and replaced. Responds with `401 Unauthorized` if the token is expired or invalid.
+Exchange a valid **refresh token** for a brand-new access/refresh token pair. The refresh token must be sent in the **JSON request body** as `refreshToken`. The old refresh token is invalidated and replaced. Responds with `401 Unauthorized` if the token is expired, invalid, or does not match the stored value.
 
-### Request headers
+### Request body
 
-| Header | Value |
-|---|---|
-| `Authorization` | `Bearer <refreshToken>` |
+<ParamField body="refreshToken" type="string" required>
+  The refresh token previously issued by `/api/auth/signup` or `/api/auth/login`.
+</ParamField>
 
 ### Example request
 
 ```bash
 curl -X POST https://api.shockly.shop/api/auth/token \
-  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+  -H "Content-Type: application/json" \
+  -d '{
+    "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+  }'
 ```
 
 ### Example response `200 OK`
@@ -180,7 +181,5 @@ curl -X POST https://api.shockly.shop/api/auth/logout \
 ### Example response `200 OK`
 
 ```json
-{
-  "status": "success"
-}
+{}
 ```

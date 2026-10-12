@@ -21,7 +21,6 @@ All dashboard routes are guarded by a combination of a JWT strategy and a server
 
 - Users authenticate at `/authentication` using their username and password. On success the API returns a JWT that is stored in `localStorage` under the `loginUser` key.
 - The NestJS API enforces a `RolesGuard` on every dashboard-related endpoint. Requests whose decoded JWT does not contain `role: "admin"` receive a `403 Forbidden` response.
-- The Next.js frontend additionally reads the stored token on page load and redirects non-admin visitors away from `/dashboard/**` before the page renders.
 
 <Tip>
   The seeded admin account ready to use immediately after running the database seed is:

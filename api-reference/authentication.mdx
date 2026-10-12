@@ -1,7 +1,7 @@
 ---
-title: "Authenticate Requests to the Shockly Shop API"
+title: "Shockly Shop API Authentication: Tokens, Refresh, Roles"
 sidebarTitle: "Authentication"
-description: "Obtain JWT access and refresh tokens via signup or login, use the access token on protected routes, rotate tokens with the refresh endpoint, and understand role-based access control."
+description: "JWT auth for the Shockly Shop API: sign up or log in to get tokens, send Bearer access tokens on protected routes, and refresh them before expiry."
 ---
 
 The Shockly Shop API uses **JSON Web Tokens (JWT)** for authentication. Every auth flow issues two tokens — a short-lived **access token** and a long-lived **refresh token** — following a secure rotation pattern. Protected endpoints verify the access token on every request, and when it expires you exchange the refresh token for a brand-new pair without requiring the user to log in again.
@@ -264,7 +264,7 @@ curl -X POST http://localhost:3001/api/auth/token \
 
 <Note>
   The strategy validates that the `refreshToken` in the request body **exactly matches**
-  the hashed token stored in the database for that user. Replayed or stolen tokens
+  the token stored in the database for that user. Replayed or stolen tokens
   that don't match will be rejected with `401`.
 </Note>
 

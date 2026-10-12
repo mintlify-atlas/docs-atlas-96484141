@@ -1,5 +1,5 @@
 ---
-title: "Production Configuration for Shockly Shop"
+title: "Shockly Shop Production Environment Variables Guide"
 sidebarTitle: "Configuration"
 description: "Configure all production environment variables, JWT secrets, file upload limits, and frontend API settings for a secure Shockly Shop deployment."
 ---
@@ -67,11 +67,12 @@ The NestJS API validates every variable on startup using `class-validator`. The 
 
 ### Redis
 
-<ParamField path="REDIS_HOST" type="string" default="localhost">
+<ParamField path="REDIS_HOST" type="string" required>
   Hostname or IP address of the Redis server used for BullMQ job queues and
-  session caching. In a Docker Compose environment this is typically the service
-  name (e.g. `redis`). In a managed cloud setup use the endpoint provided by
-  your Redis provider.
+  session caching. **Required** — the API will not start without it. In a
+  Docker Compose environment this is typically the service name (e.g. `redis`).
+  For local development set it to `localhost`. In a managed cloud setup use the
+  endpoint provided by your Redis provider.
 </ParamField>
 
 <ParamField path="REDIS_PORT" type="number" default="6379">
@@ -97,18 +98,20 @@ The NestJS API validates every variable on startup using `class-validator`. The 
   is useful after a suspected compromise.
 </ParamField>
 
-<ParamField path="JWT_ACCESS_EXPIRES_IN" type="string" default="15m">
+<ParamField path="JWT_ACCESS_EXPIRES_IN" type="string" required>
   Lifetime of access tokens expressed as a `jsonwebtoken`-compatible duration
-  string. Supported suffixes: `s` (seconds), `m` (minutes), `h` (hours),
-  `d` (days). The default `15m` is a sensible production value — short enough
-  to limit the blast radius of a leaked token while long enough for normal
-  browsing sessions.
+  string. **Required** — no default is set in the validation layer. Supported
+  suffixes: `s` (seconds), `m` (minutes), `h` (hours), `d` (days). The value
+  `15m` from `.env.example` is a sensible production starting point — short
+  enough to limit the blast radius of a leaked token while long enough for
+  normal browsing sessions.
 </ParamField>
 
-<ParamField path="JWT_REFRESH_EXPIRES_IN" type="string" default="7d">
-  Lifetime of refresh tokens. The default `7d` means users are logged out after
-  seven days of inactivity. Adjust downward (e.g. `1d`) for stricter security
-  or upward (e.g. `30d`) for a more persistent login experience.
+<ParamField path="JWT_REFRESH_EXPIRES_IN" type="string" required>
+  Lifetime of refresh tokens. **Required** — no default is set in the
+  validation layer. The value `7d` from `.env.example` means users are logged
+  out after seven days of inactivity. Adjust downward (e.g. `1d`) for stricter
+  security or upward (e.g. `30d`) for a more persistent login experience.
 </ParamField>
 
 ### File Uploads
@@ -154,14 +157,22 @@ JWT_REFRESH_SECRET=Zx7WvUtSrQpOnMlKjIhGfEdCbA9y8X6w5V4u3T2s1R0=
 
 ## Frontend API URL
 
-The Next.js frontend communicates with the NestJS API through a base URL constant defined in `apps/web/src/api/constants/index.ts`. For local development this is set to `http://localhost:3001/api`. Before deploying the frontend to production, update that constant to point to your production API:
+The Next.js frontend communicates with the NestJS API through constants defined in `apps/web/src/api/constants/index.ts`. Three values in that file are hardcoded to `localhost:3001` for local development and **all three must be updated** before deploying the frontend to production:
 
 ```typescript
 // apps/web/src/api/constants/index.ts
+
+// Base URL for all API requests (auth, products, orders, etc.)
 const baseURL = 'https://api.your-shockly-domain.com/api';
+
+// Public URL prefix for product thumbnail images
+export const thumbnail = 'https://api.your-shockly-domain.com/images/products/thumbnails/';
+
+// Public URL prefix for full-size product images
+export const imagesPath = 'https://api.your-shockly-domain.com/images/products/images/';
 ```
 
-Replace `https://api.your-shockly-domain.com` with the actual hostname or IP address where the NestJS API is reachable from the browser. If you are deploying both services behind a reverse proxy (e.g. Nginx or Caddy), this will typically be the proxy's public URL with an `/api` path prefix.
+Replace `https://api.your-shockly-domain.com` with the actual hostname or IP address where the NestJS API is reachable from the browser. If you are deploying both services behind a reverse proxy (e.g. Nginx or Caddy), this will typically be the proxy's public URL. Leaving any of these three values pointing to `localhost` will cause API requests and product images to fail for all users who are not on the same machine as the server.
 
 ## Next.js Image Domains
 
