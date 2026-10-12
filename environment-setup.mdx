@@ -1,0 +1,129 @@
+---
+title: "Configure Shockly Shop Environment Variables"
+sidebarTitle: "Environment"
+description: "A complete reference for every environment variable in apps/api/.env — database, Redis, JWT secrets, file uploads, and how to configure each one."
+---
+
+All runtime configuration for the Shockly Shop API is read from a single file: `apps/api/.env`. This file does not exist in the repository (it is git-ignored); you must create it before starting the server for the first time by copying the provided example: `cp apps/api/.env.example apps/api/.env`. The variables below must be present and valid — the application will fail to start if required values are missing or malformed.
+
+<Warning>
+  **Never commit `apps/api/.env` to version control.** It contains database credentials and JWT secrets. The file is already listed in `.gitignore`; verify this before pushing to any remote, especially a public repository.
+</Warning>
+
+## Required Variables
+
+<ParamField body="PORT" type="number" default="3001">
+  The TCP port the NestJS + Fastify server binds to. The API will be reachable at `http://localhost:<PORT>` and all routes are prefixed with `/api` (e.g. `http://localhost:3001/api/products`). Change this only if port 3001 is occupied on your machine — and update the frontend `baseURL` accordingly.
+</ParamField>
+
+<ParamField body="NODE_ENV" type="string" default="development">
+  The runtime environment mode. Accepted values are `development` and `production`. In `development` mode Pino logs are pretty-printed; in `production` they emit structured JSON. Certain NestJS security defaults (e.g. stack traces in error responses) are also gated on this value.
+</ParamField>
+
+<ParamField body="DATABASE_URL" type="string" required>
+  Full PostgreSQL connection string used by Drizzle ORM and the `postgres` driver. Must include the username, password, host, port, and database name. The Docker Compose service creates the `shockly` user and `shockly_shop` database automatically, so the default value works with no changes when using Docker.
+
+  ```
+  DATABASE_URL=postgresql://shockly:shockly123@localhost:5432/shockly_shop
+  ```
+</ParamField>
+
+<ParamField body="REDIS_HOST" type="string" default="localhost">
+  Hostname or IP address of the Redis server. BullMQ job queues and `ioredis` both read this value. When using the provided Docker Compose file, Redis is exposed on `localhost`. For remote or containerised deployments, set this to the service hostname (e.g. `redis` inside a Docker network).
+</ParamField>
+
+<ParamField body="REDIS_PORT" type="number" default="6379">
+  TCP port Redis listens on. The Docker Compose service uses the standard port `6379`. 
+
+  <Note>
+    If you are running Redis manually on Windows using the portable `tporadowski/redis` build, that distribution defaults to port **6380** to avoid conflicts with any existing Redis Windows service on 6379. Set `REDIS_PORT=6380` in that case.
+  </Note>
+</ParamField>
+
+<ParamField body="JWT_ACCESS_SECRET" type="string" required>
+  Secret key used to sign and verify short-lived JWT access tokens. Must be **at least 32 characters** long. The placeholder value in `.env.example` (`change_me_access_secret_at_least_32_chars`) must be replaced with a unique, randomly generated string before any non-local use. See [JWT Secret Generation](#jwt-secret-generation) below.
+</ParamField>
+
+<ParamField body="JWT_REFRESH_SECRET" type="string" required>
+  Secret key used to sign and verify long-lived JWT refresh tokens. Must be **at least 32 characters** long and must be **different** from `JWT_ACCESS_SECRET`. Compromising this secret allows an attacker to mint persistent sessions.
+</ParamField>
+
+<ParamField body="JWT_ACCESS_EXPIRES_IN" type="string" default="15m">
+  Expiry duration for access tokens, expressed as a [ms](https://github.com/vercel/ms) / jsonwebtoken time string (e.g. `15m`, `1h`, `30s`). Access tokens are short-lived by design — 15 minutes is a sensible default that balances usability and security.
+</ParamField>
+
+<ParamField body="JWT_REFRESH_EXPIRES_IN" type="string" default="7d">
+  Expiry duration for refresh tokens (e.g. `7d`, `30d`). Refresh tokens are stored client-side in an HTTP-only cookie and are used to obtain new access tokens without re-authentication. A 7-day window keeps sessions alive over a typical work-week.
+</ParamField>
+
+<ParamField body="UPLOAD_DIR" type="string" default="uploads">
+  Relative path (from the process working directory, i.e. `apps/api/`) where uploaded product images are stored on disk. The Fastify `@fastify/static` plugin serves this directory under the `/images/` URL prefix. The directory is created automatically on first upload if it does not exist.
+</ParamField>
+
+<ParamField body="MAX_FILE_SIZE" type="number" default="5242880">
+  Maximum permitted size for a single file upload, in **bytes**. The default `5242880` equals exactly **5 MB** (5 × 1024 × 1024). This value is passed directly to the `@fastify/multipart` plugin's `limits.fileSize` option. Increase it if you need to support larger product images.
+</ParamField>
+
+---
+
+## JWT Secret Generation
+
+Generate a cryptographically secure random secret with OpenSSL. Run this command twice — once for the access secret and once for the refresh secret — and paste each output into your `.env`.
+
+```bash
+openssl rand -base64 32
+```
+
+Example output:
+
+```
+K7fQz2mXpL9wRvN3oAeYtG8cHdJsBuI0
+```
+
+Alternatively, with Bun:
+
+```bash
+bun -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+```
+
+---
+
+## Database URL Format
+
+The `DATABASE_URL` follows the standard PostgreSQL connection string format:
+
+```
+postgresql://USER:PASSWORD@HOST:PORT/DBNAME
+```
+
+| Segment | Docker Compose default | Description |
+|---|---|---|
+| `USER` | `shockly` | PostgreSQL role name |
+| `PASSWORD` | `shockly123` | Role password |
+| `HOST` | `localhost` | DB server hostname |
+| `PORT` | `5432` | PostgreSQL port |
+| `DBNAME` | `shockly_shop` | Target database |
+
+For a production deployment with a managed database (e.g. Supabase, Railway, Neon), replace all five segments with the values from your provider's connection details panel. Some providers also append query parameters like `?sslmode=require` — include those as-is.
+
+---
+
+## Frontend Configuration
+
+The Next.js app in `apps/web` communicates with the API over HTTP. The base URL is hardcoded in:
+
+```
+apps/web/src/api/constants/index.ts
+```
+
+Ensure this file contains:
+
+```typescript
+const baseURL = 'http://localhost:3001/api';
+```
+
+If you change `PORT` in `apps/api/.env`, update this constant to match. For production deployments, replace `http://localhost:3001` with your public API domain (e.g. `https://api.yourstore.com`).
+
+<Info>
+  If product images fail to load on the storefront, add `'localhost'` (or your API hostname) to the `images.domains` array in `apps/web/next.config.js`. Next.js blocks external image domains by default.
+</Info>

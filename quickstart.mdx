@@ -1,47 +1,162 @@
 ---
-title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+title: "Get Started with Shockly Shop in 5 Minutes"
+sidebarTitle: "Quickstart"
+description: "Clone the Shockly Shop monorepo, spin up Postgres and Redis with Docker, run migrations, and have the API and storefront running locally in minutes."
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
+This guide walks you through cloning the repository, installing all dependencies, standing up the required infrastructure with Docker, and launching both the NestJS API and the Next.js storefront on your machine. By the end you will have a fully functional local Shockly Shop instance with seeded products, categories, and test accounts — ready for development or exploration.
 
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
-
-## Prerequisites
-
-Before you begin, you must have:
-
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
-
-## Get started
+<Note>
+  **Prerequisites** — make sure the following are installed before you begin:
+  - **Bun 1.3+** — [bun.sh](https://bun.sh) (install with `curl -fsSL https://bun.sh/install | bash`)
+  - **Docker & Docker Compose** — [docs.docker.com](https://docs.docker.com/get-docker/)
+  - **Git**
+</Note>
 
 <Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
+  <Step title="Clone the repository">
+    Clone the monorepo from GitHub and navigate into the project root.
 
     ```bash
-    npm install your-package
+    git clone https://github.com/laksaeid/shockly-full.git
+    cd shockly-full
     ```
   </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
+
+  <Step title="Install dependencies">
+    Shockly Shop is a Bun workspace monorepo with a single `bun.lock` at the root. One command installs packages for both `apps/api` and `apps/web`.
 
     ```bash
-    your-cli init
+    bun install
     ```
   </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
+
+  <Step title="Start infrastructure">
+    The `apps/api/docker-compose.yml` file defines a **PostgreSQL 16** service and a **Redis 7** service. Bring them both up as background daemons.
 
     ```bash
-    your-cli start
+    docker compose -f apps/api/docker-compose.yml up -d
+    ```
+
+    Docker will pull the `postgres:16-alpine` and `redis:7-alpine` images on first run and create named volumes (`postgres_data`, `redis_data`) for persistence. Subsequent starts are instant.
+  </Step>
+
+  <Step title="Configure environment">
+    Copy the example environment file to create your local `.env`. The defaults in `.env.example` match the credentials used by the Docker Compose services, so no edits are needed for a first run.
+
+    ```bash
+    cp apps/api/.env.example apps/api/.env
+    ```
+
+    The generated `apps/api/.env` will contain:
+
+    ```ini
+    # App
+    PORT=3001
+    NODE_ENV=development
+
+    # Database
+    DATABASE_URL=postgresql://shockly:shockly123@localhost:5432/shockly_shop
+
+    # Redis
+    REDIS_HOST=localhost
+    REDIS_PORT=6379
+
+    # JWT
+    JWT_ACCESS_SECRET=change_me_access_secret_at_least_32_chars
+    JWT_REFRESH_SECRET=change_me_refresh_secret_at_least_32_chars
+    JWT_ACCESS_EXPIRES_IN=15m
+    JWT_REFRESH_EXPIRES_IN=7d
+
+    # Upload
+    UPLOAD_DIR=uploads
+    MAX_FILE_SIZE=5242880
+    ```
+
+    <Note>
+      Change `JWT_ACCESS_SECRET` and `JWT_REFRESH_SECRET` to unique random strings (at least 32 characters each) before deploying to any shared or production environment. See the [Environment Setup](/environment-setup) guide for a generation command.
+    </Note>
+  </Step>
+
+  <Step title="Run migrations and seed">
+    Apply the Drizzle schema migrations to the freshly started Postgres container, then seed it with products, categories, and test accounts. Both commands are run from the **repo root** via workspace scripts.
+
+    ```bash
+    bun run db:migrate
+    bun run db:seed
+    ```
+
+    `db:migrate` executes `apps/api/src/db/migrate.ts` against `DATABASE_URL`. `db:seed` runs `apps/api/src/db/seed.ts` and is safe to run multiple times (idempotent).
+  </Step>
+
+  <Step title="Start the dev servers">
+    A single root-level script starts both the API and the storefront concurrently with hot reload enabled.
+
+    ```bash
+    bun run dev
+    ```
+
+    | App | URL |
+    |---|---|
+    | NestJS API | http://localhost:3001 |
+    | Next.js Storefront | http://localhost:3002 |
+
+    The API server uses `bun --watch` for fast hot-reload. The Next.js dev server is pinned to port 3002 to avoid collisions.
+  </Step>
+
+  <Step title="Verify the installation">
+    Confirm the API is up and returning data by hitting the products endpoint.
+
+    ```bash
+    curl http://localhost:3001/api/products
+    ```
+
+    You should receive a response shaped like:
+
+    ```json
+    {
+      "status": "success",
+      "data": { ... }
+    }
+    ```
+
+    You can also verify categories:
+
+    ```bash
+    curl http://localhost:3001/api/categories
     ```
   </Step>
 </Steps>
 
 <Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
-
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
+  The full interactive API reference is served by Scalar at **http://localhost:3001/api/docs**. Every endpoint is documented with request/response schemas and a live "Try it out" panel — no external tool needed.
 </Tip>
+
+<Tip>
+  **Seeded test accounts** — log in immediately with these credentials:
+
+  | Role | Username | Password |
+  |---|---|---|
+  | Admin | `admin` | `admin123` |
+  | Customer | `customer1` | `customer123` |
+
+  A **`WELCOME10`** discount code (10% off, no minimum) is also seeded and ready to test at checkout.
+</Tip>
+
+## Individual App Dev Servers
+
+If you only need to work on one part of the stack, you can start each app independently instead of using the combined `bun run dev` command.
+
+**API only** (NestJS + Fastify on port 3001):
+
+```bash
+bun run dev:api
+```
+
+**Storefront only** (Next.js on port 3002):
+
+```bash
+bun run dev:web
+```
+
+Both commands delegate to the corresponding workspace package via Bun's `--filter` flag and behave identically to running `bun run dev` inside the respective `apps/api` or `apps/web` directory.

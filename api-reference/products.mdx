@@ -1,0 +1,408 @@
+---
+title: "Products API: Catalog, Create, Update, and Delete"
+sidebarTitle: "Products"
+description: "Full reference for Shockly Shop product endpoints: paginated catalog browsing with filters, plus admin-only create, update, and delete with image uploads."
+---
+
+The Products module powers the Shockly Shop catalog. The listing and detail endpoints are fully **public** — no authentication required. The create, update, and delete endpoints are restricted to the `admin` role and accept `multipart/form-data` to support file uploads for product images. All endpoints are served under `/api/products`.
+
+---
+
+## GET /api/products
+
+Retrieve a paginated, sortable, filterable list of products. This endpoint is public — no authentication is required.
+
+### Query parameters
+
+<ParamField query="limit" type="string" default="4">
+  Number of products to return per page. Must be a numeric string (e.g. `"12"`).
+</ParamField>
+
+<ParamField query="page" type="string" default="1">
+  Page number to retrieve. Must be a numeric string. Combined with `limit` to calculate the offset.
+</ParamField>
+
+<ParamField query="sort" type="string" default="-createdAt">
+  Field name to sort results by. Prefix the field name with `-` for **descending** order, or omit the prefix for **ascending**. Example values: `"price"`, `"-price"`, `"name"`, `"-createdAt"`.
+</ParamField>
+
+<ParamField query="category" type="string (UUID)">
+  Filter products to those belonging to this category UUID.
+</ParamField>
+
+<ParamField query="subcategory" type="string (UUID)">
+  Filter products to those belonging to this subcategory UUID. Use together with `category` for precise filtering.
+</ParamField>
+
+### Example request
+
+```bash
+curl "https://api.shockly.shop/api/products?limit=8&page=1&sort=-price&category=b3e1f2a0-1234-5678-abcd-000000000001"
+```
+
+### Example response `200 OK`
+
+```json
+{
+  "status": "success",
+  "data": {
+    "products": [
+      {
+        "id": "d4e5f6a7-b8c9-0123-def0-111111111111",
+        "name": "Samsung Galaxy S24",
+        "slugname": "samsung-galaxy-s24",
+        "brand": "Samsung",
+        "description": "A flagship Android smartphone.",
+        "price": "25000000.00",
+        "quantity": 10,
+        "thumbnail": "/images/products/thumbnails/s24-thumb.jpg",
+        "images": [
+          "/images/products/images/s24-1.jpg",
+          "/images/products/images/s24-2.jpg"
+        ],
+        "rating": { "rate": 4.7, "count": 230 },
+        "category": "b3e1f2a0-1234-5678-abcd-000000000001",
+        "subcategory": "c4f2a3b1-2345-6789-bcde-000000000002",
+        "createdAt": "2024-05-10T09:00:00.000Z",
+        "updatedAt": "2024-06-01T12:00:00.000Z"
+      }
+    ],
+    "total": 42,
+    "page": 1,
+    "limit": 8
+  }
+}
+```
+
+---
+
+## GET /api/products/:id
+
+Retrieve a single product by its UUID. This endpoint is public. Returns `404 Not Found` when the product does not exist.
+
+### Path parameters
+
+<ParamField path="id" type="string (UUID)" required>
+  The UUID of the product to retrieve.
+</ParamField>
+
+### Example request
+
+```bash
+curl https://api.shockly.shop/api/products/d4e5f6a7-b8c9-0123-def0-111111111111
+```
+
+### Example response `200 OK`
+
+```json
+{
+  "status": "success",
+  "data": {
+    "id": "d4e5f6a7-b8c9-0123-def0-111111111111",
+    "name": "Samsung Galaxy S24",
+    "slugname": "samsung-galaxy-s24",
+    "brand": "Samsung",
+    "description": "A flagship Android smartphone.",
+    "price": "25000000.00",
+    "quantity": 10,
+    "thumbnail": "/images/products/thumbnails/s24-thumb.jpg",
+    "images": ["/images/products/images/s24-1.jpg"],
+    "rating": { "rate": 4.7, "count": 230 },
+    "category": "b3e1f2a0-1234-5678-abcd-000000000001",
+    "subcategory": "c4f2a3b1-2345-6789-bcde-000000000002",
+    "createdAt": "2024-05-10T09:00:00.000Z",
+    "updatedAt": "2024-06-01T12:00:00.000Z"
+  }
+}
+```
+
+---
+
+## POST /api/products
+
+Create a new product. **Admin only.** The request must be sent as `multipart/form-data` to support optional image file uploads. Returns `409 Conflict` if a product with the same name already exists.
+
+### Request headers
+
+| Header | Value |
+|---|---|
+| `Authorization` | `Bearer <accessToken>` |
+| `Content-Type` | `multipart/form-data` |
+
+### Form fields
+
+<ParamField body="name" type="string" required>
+  Product name. Must be unique across the catalog.
+</ParamField>
+
+<ParamField body="brand" type="string" required>
+  Brand or manufacturer name (e.g. `"Samsung"`).
+</ParamField>
+
+<ParamField body="price" type="string (numeric)" required>
+  Product price as a numeric string (e.g. `"25000000"`). The API coerces this to a decimal internally.
+</ParamField>
+
+<ParamField body="quantity" type="string (numeric)" required>
+  Stock quantity as a numeric string (e.g. `"10"`). The API coerces this to an integer internally.
+</ParamField>
+
+<ParamField body="category" type="string (UUID)" required>
+  UUID of the parent category. Must reference an existing category.
+</ParamField>
+
+<ParamField body="description" type="string">
+  Optional free-text product description.
+</ParamField>
+
+<ParamField body="subcategory" type="string (UUID)">
+  Optional UUID of the parent subcategory. Must belong to the specified `category`.
+</ParamField>
+
+<ParamField body="thumbnail" type="file (binary)">
+  Optional single image file used as the product's primary thumbnail.
+</ParamField>
+
+<ParamField body="images" type="file[] (binary)">
+  Optional array of additional product image files.
+</ParamField>
+
+<Note>
+  Because the request uses `multipart/form-data`, numeric fields such as `price` and `quantity` must be sent as **strings**. The API validates them with `@IsNumberString()` and coerces them to the correct database types (`NUMERIC` and `INTEGER`) before insertion. Sending them as JSON numbers will result in a validation error.
+</Note>
+
+### Example request
+
+```bash
+curl -X POST https://api.shockly.shop/api/products \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -F "name=Samsung Galaxy S24" \
+  -F "brand=Samsung" \
+  -F "price=25000000" \
+  -F "quantity=10" \
+  -F "category=b3e1f2a0-1234-5678-abcd-000000000001" \
+  -F "subcategory=c4f2a3b1-2345-6789-bcde-000000000002" \
+  -F "description=A flagship Android smartphone." \
+  -F "thumbnail=@/path/to/thumbnail.jpg" \
+  -F "images=@/path/to/image1.jpg" \
+  -F "images=@/path/to/image2.jpg"
+```
+
+### Example response `201 Created`
+
+```json
+{
+  "status": "success",
+  "data": {
+    "id": "d4e5f6a7-b8c9-0123-def0-111111111111",
+    "name": "Samsung Galaxy S24",
+    "slugname": "samsung-galaxy-s24",
+    "brand": "Samsung",
+    "description": "A flagship Android smartphone.",
+    "price": "25000000.00",
+    "quantity": 10,
+    "thumbnail": "/images/products/thumbnails/s24-thumb.jpg",
+    "images": [
+      "/images/products/images/s24-1.jpg",
+      "/images/products/images/s24-2.jpg"
+    ],
+    "rating": { "rate": 0, "count": 0 },
+    "category": "b3e1f2a0-1234-5678-abcd-000000000001",
+    "subcategory": "c4f2a3b1-2345-6789-bcde-000000000002",
+    "createdAt": "2024-06-01T10:00:00.000Z",
+    "updatedAt": "2024-06-01T10:00:00.000Z"
+  }
+}
+```
+
+---
+
+## PATCH /api/products/:id
+
+Update an existing product. **Admin only.** The request must be sent as `multipart/form-data`. All fields are optional — send only the ones you want to change. Returns `404 Not Found` when the product does not exist.
+
+### Path parameters
+
+<ParamField path="id" type="string (UUID)" required>
+  UUID of the product to update.
+</ParamField>
+
+### Request headers
+
+| Header | Value |
+|---|---|
+| `Authorization` | `Bearer <accessToken>` |
+| `Content-Type` | `multipart/form-data` |
+
+### Form fields
+
+<ParamField body="name" type="string">
+  Updated product name.
+</ParamField>
+
+<ParamField body="brand" type="string">
+  Updated brand name.
+</ParamField>
+
+<ParamField body="price" type="string (numeric)">
+  Updated price as a numeric string.
+</ParamField>
+
+<ParamField body="quantity" type="string (numeric)">
+  Updated stock quantity as a numeric string.
+</ParamField>
+
+<ParamField body="category" type="string (UUID)">
+  Updated category UUID.
+</ParamField>
+
+<ParamField body="subcategory" type="string">
+  Updated subcategory UUID, or an empty string to clear the existing subcategory.
+</ParamField>
+
+<ParamField body="description" type="string">
+  Updated description text.
+</ParamField>
+
+<ParamField body="thumbnail" type="file (binary)">
+  Replacement thumbnail image file.
+</ParamField>
+
+<ParamField body="images" type="file[] (binary)">
+  Replacement product image files.
+</ParamField>
+
+### Example request
+
+```bash
+curl -X PATCH https://api.shockly.shop/api/products/d4e5f6a7-b8c9-0123-def0-111111111111 \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -F "price=22000000" \
+  -F "quantity=5"
+```
+
+### Example response `200 OK`
+
+```json
+{
+  "status": "success",
+  "data": {
+    "id": "d4e5f6a7-b8c9-0123-def0-111111111111",
+    "name": "Samsung Galaxy S24",
+    "slugname": "samsung-galaxy-s24",
+    "brand": "Samsung",
+    "description": "A flagship Android smartphone.",
+    "price": "22000000.00",
+    "quantity": 5,
+    "thumbnail": "/images/products/thumbnails/s24-thumb.jpg",
+    "images": ["/images/products/images/s24-1.jpg"],
+    "rating": { "rate": 4.7, "count": 230 },
+    "category": "b3e1f2a0-1234-5678-abcd-000000000001",
+    "subcategory": "c4f2a3b1-2345-6789-bcde-000000000002",
+    "createdAt": "2024-05-10T09:00:00.000Z",
+    "updatedAt": "2024-07-15T08:30:00.000Z"
+  }
+}
+```
+
+---
+
+## DELETE /api/products/:id
+
+Permanently delete a product. **Admin only.** Returns `404 Not Found` when the product does not exist.
+
+### Path parameters
+
+<ParamField path="id" type="string (UUID)" required>
+  UUID of the product to delete.
+</ParamField>
+
+### Request headers
+
+| Header | Value |
+|---|---|
+| `Authorization` | `Bearer <accessToken>` |
+
+### Example request
+
+```bash
+curl -X DELETE https://api.shockly.shop/api/products/d4e5f6a7-b8c9-0123-def0-111111111111 \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+### Example response `200 OK`
+
+```json
+{
+  "status": "success"
+}
+```
+
+---
+
+## Product schema
+
+<ResponseField name="id" type="string (UUID)">
+  Unique identifier for the product, auto-generated by the database.
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  Product display name. Unique across the entire catalog. Maximum 255 characters.
+</ResponseField>
+
+<ResponseField name="slugname" type="string">
+  URL-safe slug automatically derived from `name` (e.g. `"samsung-galaxy-s24"`). Maximum 280 characters.
+</ResponseField>
+
+<ResponseField name="brand" type="string">
+  Brand or manufacturer name. Maximum 100 characters.
+</ResponseField>
+
+<ResponseField name="description" type="string | null">
+  Optional free-text description of the product.
+</ResponseField>
+
+<ResponseField name="price" type="string (decimal)">
+  Product price as a decimal string with up to 12 digits precision and 2 decimal places (e.g. `"25000000.00"`).
+</ResponseField>
+
+<ResponseField name="quantity" type="number (integer)">
+  Available stock count. Defaults to `0`.
+</ResponseField>
+
+<ResponseField name="thumbnail" type="string | null">
+  Relative path to the primary thumbnail image (e.g. `"/images/products/thumbnails/thumb.jpg"`).
+</ResponseField>
+
+<ResponseField name="images" type="string[]">
+  Array of relative paths to additional product images. Defaults to an empty array `[]`.
+</ResponseField>
+
+<ResponseField name="rating" type="object">
+  Aggregated rating object.
+
+  <Expandable title="rating properties">
+    <ResponseField name="rating.rate" type="number">
+      Average rating score (e.g. `4.7`). Defaults to `0`.
+    </ResponseField>
+    <ResponseField name="rating.count" type="number">
+      Total number of ratings received. Defaults to `0`.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="category" type="string (UUID)">
+  UUID of the parent category. References the `categories` table.
+</ResponseField>
+
+<ResponseField name="subcategory" type="string (UUID) | null">
+  Optional UUID of the parent subcategory. References the `subcategories` table.
+</ResponseField>
+
+<ResponseField name="createdAt" type="string (ISO 8601)">
+  Timestamp when the product record was created.
+</ResponseField>
+
+<ResponseField name="updatedAt" type="string (ISO 8601)">
+  Timestamp of the most recent update to the product record.
+</ResponseField>

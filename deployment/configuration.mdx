@@ -1,0 +1,206 @@
+---
+title: "Production Configuration for Shockly Shop"
+sidebarTitle: "Configuration"
+description: "Configure all production environment variables, JWT secrets, file upload limits, and frontend API settings for a secure Shockly Shop deployment."
+---
+
+Moving Shockly Shop from a development laptop to a production server requires careful attention to secrets, database credentials, and service addresses. Unlike development — where defaults and placeholder values are acceptable — a production environment must use strong, randomly-generated secrets, a hardened `DATABASE_URL` pointing to a managed or dedicated PostgreSQL instance, and explicit values for every variable the NestJS API reads at startup. All configuration is supplied to the API through a single `.env` file located at `apps/api/.env`; the validation layer in `env.validation.ts` throws at boot time if any required value is missing or malformed.
+
+## Environment File
+
+The API reads its configuration from `apps/api/.env`. A fully-annotated example file is committed at `apps/api/.env.example` and reproduced below. Copy it to `apps/api/.env` and replace every placeholder with real values before starting the server.
+
+```bash
+# apps/api/.env.example
+
+# App
+PORT=3001
+NODE_ENV=development
+
+# Database
+DATABASE_URL=postgresql://shockly:shockly123@localhost:5432/shockly_shop
+
+# Redis
+REDIS_HOST=localhost
+REDIS_PORT=6379
+
+# JWT
+JWT_ACCESS_SECRET=change_me_access_secret_at_least_32_chars
+JWT_REFRESH_SECRET=change_me_refresh_secret_at_least_32_chars
+JWT_ACCESS_EXPIRES_IN=15m
+JWT_REFRESH_EXPIRES_IN=7d
+
+# Upload
+UPLOAD_DIR=uploads
+MAX_FILE_SIZE=5242880
+```
+
+## All Environment Variables
+
+The NestJS API validates every variable on startup using `class-validator`. The table below documents each variable; fields marked **required** have no default and will cause the process to exit if omitted.
+
+### Application
+
+<ParamField path="PORT" type="number" default="3001">
+  TCP port the NestJS HTTP server listens on. Must be `>= 1`. Change this if
+  port 3001 is already occupied on your host or if your reverse proxy expects a
+  different upstream port.
+</ParamField>
+
+<ParamField path="NODE_ENV" type="string" default="development">
+  Runtime environment. Accepted values are `development`, `production`, and
+  `test`. Set to `production` in all deployed environments to enable production
+  optimisations and disable development-only tooling such as verbose stack
+  traces.
+</ParamField>
+
+### Database
+
+<ParamField path="DATABASE_URL" type="string" required>
+  Full PostgreSQL connection string in the format
+  `postgresql://<user>:<password>@<host>:<port>/<database>`. This value is
+  consumed directly by the `postgres` driver and by Drizzle Kit during
+  migrations. The connection string must point to a running PostgreSQL 16+ (or
+  17) instance with the target database and user already created. **Required** —
+  the API will not start without it.
+</ParamField>
+
+### Redis
+
+<ParamField path="REDIS_HOST" type="string" default="localhost">
+  Hostname or IP address of the Redis server used for BullMQ job queues and
+  session caching. In a Docker Compose environment this is typically the service
+  name (e.g. `redis`). In a managed cloud setup use the endpoint provided by
+  your Redis provider.
+</ParamField>
+
+<ParamField path="REDIS_PORT" type="number" default="6379">
+  Port the Redis server is listening on. Must be `>= 1`. The standard Redis
+  port is `6379`; change this if you are running Redis on a non-standard port
+  (for example `6380` when using the portable Windows Redis build alongside an
+  existing service).
+</ParamField>
+
+### JWT Authentication
+
+<ParamField path="JWT_ACCESS_SECRET" type="string" required>
+  Secret key used to sign short-lived JWT access tokens. Must be at least 32
+  characters long. **Never reuse this value across environments and never commit
+  it to source control.** Generate a strong value with `openssl rand -base64 32`
+  (see [Generating Secure Secrets](#generating-secure-secrets) below).
+</ParamField>
+
+<ParamField path="JWT_REFRESH_SECRET" type="string" required>
+  Secret key used to sign long-lived JWT refresh tokens. Must be at least 32
+  characters long and **different** from `JWT_ACCESS_SECRET`. Rotating this
+  value immediately invalidates all active refresh tokens for all users, which
+  is useful after a suspected compromise.
+</ParamField>
+
+<ParamField path="JWT_ACCESS_EXPIRES_IN" type="string" default="15m">
+  Lifetime of access tokens expressed as a `jsonwebtoken`-compatible duration
+  string. Supported suffixes: `s` (seconds), `m` (minutes), `h` (hours),
+  `d` (days). The default `15m` is a sensible production value — short enough
+  to limit the blast radius of a leaked token while long enough for normal
+  browsing sessions.
+</ParamField>
+
+<ParamField path="JWT_REFRESH_EXPIRES_IN" type="string" default="7d">
+  Lifetime of refresh tokens. The default `7d` means users are logged out after
+  seven days of inactivity. Adjust downward (e.g. `1d`) for stricter security
+  or upward (e.g. `30d`) for a more persistent login experience.
+</ParamField>
+
+### File Uploads
+
+<ParamField path="UPLOAD_DIR" type="string" default="uploads">
+  Directory where product images and other uploaded files are stored, relative
+  to `process.cwd()` (the `apps/api` folder). In production, point this to a
+  persistent volume or an object-storage mount so files survive container
+  restarts. Example: `/var/shockly/uploads`.
+</ParamField>
+
+<ParamField path="MAX_FILE_SIZE" type="number" default="5242880">
+  Maximum allowed upload size **in bytes**. The default `5242880` equals 5 MB.
+  Must be `>= 1`. Increase this if you need to accept larger product images,
+  or decrease it to reduce storage and bandwidth costs.
+</ParamField>
+
+## Generating Secure Secrets
+
+Both JWT secrets must be cryptographically random strings of at least 32 characters. The fastest way to generate production-grade values on any Unix-like system is with OpenSSL:
+
+```bash
+# Generate JWT_ACCESS_SECRET
+openssl rand -base64 32
+
+# Generate JWT_REFRESH_SECRET (run twice to get two distinct values)
+openssl rand -base64 32
+```
+
+Copy each output directly into your `.env` file:
+
+```bash
+JWT_ACCESS_SECRET=K8vXp2mQnL9sRjTwYzAe1bCdFgHiJkMo3NuPqRsT4Uw=
+JWT_REFRESH_SECRET=Zx7WvUtSrQpOnMlKjIhGfEdCbA9y8X6w5V4u3T2s1R0=
+```
+
+<Tip>
+  On Windows without OpenSSL, you can use PowerShell:
+  ```powershell
+  [Convert]::ToBase64String((1..32 | ForEach-Object { Get-Random -Maximum 256 }))
+  ```
+</Tip>
+
+## Frontend API URL
+
+The Next.js frontend communicates with the NestJS API through a base URL constant defined in `apps/web/src/api/constants/index.ts`. For local development this is set to `http://localhost:3001/api`. Before deploying the frontend to production, update that constant to point to your production API:
+
+```typescript
+// apps/web/src/api/constants/index.ts
+const baseURL = 'https://api.your-shockly-domain.com/api';
+```
+
+Replace `https://api.your-shockly-domain.com` with the actual hostname or IP address where the NestJS API is reachable from the browser. If you are deploying both services behind a reverse proxy (e.g. Nginx or Caddy), this will typically be the proxy's public URL with an `/api` path prefix.
+
+## Next.js Image Domains
+
+Product images are served directly from the NestJS API's upload endpoint. For Next.js to load these images through its optimised `<Image>` component, the API hostname must be listed in `apps/web/next.config.js` under `images.remotePatterns` (preferred) or the legacy `images.domains` array.
+
+The current `next.config.js` already includes `localhost:3001` for development:
+
+```javascript
+// apps/web/next.config.js
+const nextConfig = {
+  reactStrictMode: true,
+  images: {
+    dangerouslyAllowLocalIP: true,
+    remotePatterns: [
+      { protocol: "https", hostname: "nifty-keldysh-gjw2oa96q.iran.liara.run" },
+      { protocol: "http", hostname: "localhost", port: "3001" },
+    ],
+  },
+  typescript: {
+    ignoreBuildErrors: true,
+  },
+}
+```
+
+For a production deployment, add an entry for your production API hostname:
+
+```javascript
+remotePatterns: [
+  // existing entries ...
+  { protocol: "https", hostname: "api.your-shockly-domain.com" },
+],
+```
+
+Without this entry, Next.js will refuse to optimise images from the API host and product thumbnails will not render on the storefront.
+
+<Warning>
+  Never commit your production `.env` file to source control. Add `apps/api/.env`
+  to `.gitignore` immediately. Use strong, unique secrets for `JWT_ACCESS_SECRET`
+  and `JWT_REFRESH_SECRET` — reusing development placeholders like
+  `change_me_access_secret_at_least_32_chars` in production is a critical
+  security vulnerability that can lead to full account takeover.
+</Warning>

@@ -1,0 +1,335 @@
+---
+title: "Database Migrations and Schema Management with Drizzle"
+sidebarTitle: "Migrations"
+description: "Apply Drizzle Kit migrations, generate schema changes, seed sample data, and browse the database visually with Drizzle Studio in Shockly Shop."
+---
+
+Shockly Shop uses [Drizzle ORM](https://orm.drizzle.team) as its database abstraction layer and [Drizzle Kit](https://orm.drizzle.team/kit-docs/overview) as the accompanying schema management toolchain. Drizzle Kit compares your TypeScript schema definitions (in `apps/api/src/db/schema/`) against the current database state and generates incremental SQL migration files. Those migration files are then applied to PostgreSQL by a thin migration runner script. This approach gives you version-controlled, auditable schema history without the overhead of a traditional ORM migration framework.
+
+## Available Commands
+
+All database commands can be run from the **repository root** using Bun workspace scripts defined in the root `package.json`, or from inside `apps/api/` using the same script names.
+
+| Command | What it does |
+|---|---|
+| `bun run db:generate` | Diff the TypeScript schema against the last migration and write a new SQL file to `apps/api/src/db/migrations/` |
+| `bun run db:migrate` | Execute `apps/api/src/db/migrate.ts` — applies all pending migration files to the `DATABASE_URL` database |
+| `bun run db:seed` | Execute `apps/api/src/db/seed.ts` — inserts sample users, categories, subcategories, products, and a discount code |
+| `bun run db:studio` | Launch Drizzle Studio, a visual database browser, at `http://localhost:4983` |
+
+### `bun run db:generate`
+
+Runs `drizzle-kit generate`. Drizzle Kit reads the schema entry point at `apps/api/src/db/schema/index.ts`, computes the diff from the last snapshot, and writes a new `.sql` file and updated snapshot to `apps/api/src/db/migrations/`. Always review the generated SQL before applying it.
+
+### `bun run db:migrate`
+
+Executes `apps/api/src/db/migrate.ts` directly with Bun. The script connects to PostgreSQL using `DATABASE_URL`, calls the Drizzle migrator, and applies every `.sql` file in `apps/api/src/db/migrations/` that has not yet been recorded in the `__drizzle_migrations` table.
+
+### `bun run db:seed`
+
+Runs `apps/api/src/db/seed.ts`. The seed script is **idempotent** — every insert uses `.onConflictDoNothing()`, so running it multiple times will not create duplicate records. It is safe to re-run after a partial seed failure.
+
+### `bun run db:studio`
+
+Launches the Drizzle Studio web UI against your configured `DATABASE_URL`. You can browse tables, run ad-hoc queries, and inspect relations at [http://localhost:4983](http://localhost:4983) without leaving your terminal.
+
+## Initial Setup
+
+Follow these steps the first time you set up a fresh Shockly Shop database.
+
+<Steps>
+  <Step title="Set DATABASE_URL in apps/api/.env">
+    Ensure your `apps/api/.env` file exists and contains a valid `DATABASE_URL`
+    pointing to a running PostgreSQL instance. For the default Docker Compose
+    setup this is:
+
+    ```bash
+    DATABASE_URL=postgresql://shockly:shockly123@localhost:5432/shockly_shop
+    ```
+
+    If the `.env` file does not exist yet, copy the example:
+
+    ```bash
+    cp apps/api/.env.example apps/api/.env
+    ```
+
+    Then edit the values as needed. See the [Configuration](/deployment/configuration)
+    page for a full reference.
+  </Step>
+
+  <Step title="Apply the initial migration">
+    Run the migration command from the repository root:
+
+    ```bash
+    bun run db:migrate
+    ```
+
+    On a fresh database this applies `0000_tranquil_riptide.sql`, which creates
+    all tables (`users`, `categories`, `subcategories`, `products`, `orders`,
+    `cart_items`, `discounts`, `payments`), all custom enum types, and all
+    foreign-key constraints. The console will print:
+
+    ```
+    Migrations applied successfully
+    ```
+  </Step>
+
+  <Step title="Seed sample data">
+    Populate the database with test users, categories, products, and a discount
+    code:
+
+    ```bash
+    bun run db:seed
+    ```
+
+    A successful run outputs:
+
+    ```
+    🌱 Seeding database...
+    ✅ Admin user: admin
+    ✅ Customer user: customer1
+    ✅ Categories: 5 inserted
+    ✅ Subcategories: 11 inserted
+    ✅ Products: 43 inserted
+    ✅ Discount code: WELCOME10
+
+    🎉 Seed complete!
+       Admin login  → username: admin     | password: admin123
+       Customer     → username: customer1 | password: customer123
+    ```
+  </Step>
+
+  <Step title="Inspect the schema with Drizzle Studio (optional)">
+    Open the visual database browser to verify the seeded data:
+
+    ```bash
+    bun run db:studio
+    ```
+
+    Navigate to [http://localhost:4983](http://localhost:4983) in your browser.
+    You can browse every table, view the seeded rows, and run SQL queries
+    interactively.
+  </Step>
+</Steps>
+
+## Making Schema Changes
+
+When you modify the TypeScript schema definitions, Drizzle Kit generates the corresponding SQL migration automatically.
+
+<Steps>
+  <Step title="Edit the schema files">
+    Schema files live in `apps/api/src/db/schema/`. Each table is typically
+    defined in its own file and re-exported through `index.ts`. For example, to
+    add a `slug` column to the `orders` table, open
+    `apps/api/src/db/schema/orders.ts` and add the column definition using
+    Drizzle's column builders.
+  </Step>
+
+  <Step title="Generate the migration SQL">
+    From the repository root, run:
+
+    ```bash
+    bun run db:generate
+    ```
+
+    Drizzle Kit compares your updated schema against the last saved snapshot and
+    writes a new SQL file to `apps/api/src/db/migrations/`. The filename is
+    auto-generated (e.g. `0001_your_description.sql`). Review the file to
+    confirm the generated SQL matches your intent before proceeding.
+  </Step>
+
+  <Step title="Apply the migration">
+    Apply the new migration to your running database:
+
+    ```bash
+    bun run db:migrate
+    ```
+
+    Drizzle's migrator tracks which files have already been applied, so only the
+    new file is executed. The console prints `Migrations applied successfully`
+    on completion.
+  </Step>
+</Steps>
+
+<Tip>
+  If you need to undo a migration during development, the simplest approach on a
+  local database is to drop and recreate the database, then re-run
+  `db:migrate` and `db:seed`. Drizzle Kit does not ship a built-in rollback
+  command for production safety reasons.
+</Tip>
+
+## drizzle.config.ts
+
+Drizzle Kit reads its configuration from `apps/api/drizzle.config.ts`:
+
+```typescript
+import type { Config } from 'drizzle-kit';
+
+export default {
+  schema: './src/db/schema/index.ts',
+  out: './src/db/migrations',
+  dialect: 'postgresql',
+  dbCredentials: {
+    url: process.env.DATABASE_URL!,
+  },
+  verbose: true,
+  strict: true,
+} satisfies Config;
+```
+
+| Option | Value | Description |
+|---|---|---|
+| `schema` | `./src/db/schema/index.ts` | Entry point that re-exports all table definitions |
+| `out` | `./src/db/migrations` | Directory where generated `.sql` files are written |
+| `dialect` | `postgresql` | Target database dialect |
+| `dbCredentials.url` | `process.env.DATABASE_URL` | Read from the environment at generation time |
+| `verbose` | `true` | Prints every SQL statement Drizzle Kit analyses |
+| `strict` | `true` | Requires explicit confirmation before destructive changes |
+
+<Info>
+  With `strict: true`, Drizzle Kit will prompt you before generating migrations
+  that drop columns or tables. This is a safety net against accidental data
+  loss during development.
+</Info>
+
+## Initial Migration SQL
+
+The first migration, `0000_tranquil_riptide.sql`, defines the entire initial schema. The key `CREATE TABLE` statements are shown below:
+
+```sql
+-- Custom enum types
+CREATE TYPE "public"."role" AS ENUM('customer', 'admin');
+CREATE TYPE "public"."order_status" AS ENUM('pending', 'paid', 'fulfilled', 'shipped', 'cancelled');
+CREATE TYPE "public"."discount_type" AS ENUM('percentage', 'fixed');
+CREATE TYPE "public"."payment_status" AS ENUM('pending', 'success', 'failed', 'refunded');
+
+-- Core tables
+CREATE TABLE IF NOT EXISTS "users" (
+  "id"            uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+  "firstname"     varchar(100) NOT NULL,
+  "lastname"      varchar(100) NOT NULL,
+  "username"      varchar(100) NOT NULL,
+  "password"      text NOT NULL,
+  "phone_number"  varchar(20),
+  "address"       text,
+  "role"          "role" DEFAULT 'customer' NOT NULL,
+  "refresh_token" text,
+  "created_at"    timestamp DEFAULT now() NOT NULL,
+  "updated_at"    timestamp DEFAULT now() NOT NULL,
+  CONSTRAINT "users_username_unique" UNIQUE("username")
+);
+
+CREATE TABLE IF NOT EXISTS "categories" (
+  "id"         uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+  "name"       varchar(100) NOT NULL,
+  "slugname"   varchar(120) NOT NULL,
+  "icon"       varchar(255),
+  "created_at" timestamp DEFAULT now() NOT NULL,
+  "updated_at" timestamp DEFAULT now() NOT NULL,
+  CONSTRAINT "categories_name_unique"     UNIQUE("name"),
+  CONSTRAINT "categories_slugname_unique" UNIQUE("slugname")
+);
+
+CREATE TABLE IF NOT EXISTS "products" (
+  "id"             uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+  "name"           varchar(255) NOT NULL,
+  "slugname"       varchar(280) NOT NULL,
+  "brand"          varchar(100) NOT NULL,
+  "description"    text,
+  "price"          numeric(12, 2) NOT NULL,
+  "quantity"       integer DEFAULT 0 NOT NULL,
+  "thumbnail"      varchar(255),
+  "images"         jsonb DEFAULT '[]'::jsonb,
+  "rating"         jsonb DEFAULT '{"rate":0,"count":0}'::jsonb,
+  "category_id"    uuid NOT NULL,
+  "subcategory_id" uuid,
+  "created_at"     timestamp DEFAULT now() NOT NULL,
+  "updated_at"     timestamp DEFAULT now() NOT NULL,
+  CONSTRAINT "products_name_unique"     UNIQUE("name"),
+  CONSTRAINT "products_slugname_unique" UNIQUE("slugname")
+);
+
+CREATE TABLE IF NOT EXISTS "orders" (
+  "id"              uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+  "user_id"         uuid NOT NULL,
+  "products"        jsonb NOT NULL,
+  "total_price"     numeric(12, 2) DEFAULT '0' NOT NULL,
+  "delivery_date"   timestamp,
+  "delivery_status" boolean DEFAULT false NOT NULL,
+  "status"          "order_status" DEFAULT 'pending' NOT NULL,
+  "payment_ref"     uuid,
+  "created_at"      timestamp DEFAULT now() NOT NULL,
+  "updated_at"      timestamp DEFAULT now() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS "discounts" (
+  "id"               uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+  "code"             varchar(50) NOT NULL,
+  "type"             "discount_type" NOT NULL,
+  "value"            numeric(10, 2) NOT NULL,
+  "min_order_amount" numeric(12, 2) DEFAULT '0',
+  "max_uses"         integer,
+  "used_count"       integer DEFAULT 0 NOT NULL,
+  "is_active"        boolean DEFAULT true NOT NULL,
+  "expires_at"       timestamp,
+  "created_at"       timestamp DEFAULT now() NOT NULL,
+  "updated_at"       timestamp DEFAULT now() NOT NULL,
+  CONSTRAINT "discounts_code_unique" UNIQUE("code")
+);
+
+CREATE TABLE IF NOT EXISTS "payments" (
+  "id"           uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+  "order_id"     uuid NOT NULL,
+  "user_id"      uuid NOT NULL,
+  "amount"       numeric(12, 2) NOT NULL,
+  "status"       "payment_status" DEFAULT 'pending' NOT NULL,
+  "provider"     varchar(50) DEFAULT 'mock' NOT NULL,
+  "provider_ref" varchar(255),
+  "created_at"   timestamp DEFAULT now() NOT NULL,
+  "updated_at"   timestamp DEFAULT now() NOT NULL
+);
+```
+
+## Seeded Data
+
+Running `bun run db:seed` inserts the following records into a fresh database. All inserts use `ON CONFLICT DO NOTHING`, so re-running the seed on an already-populated database is safe.
+
+### Users
+
+| Username | Password | Role |
+|---|---|---|
+| `admin` | `admin123` | `admin` |
+| `customer1` | `customer123` | `customer` |
+
+Passwords are hashed with Bun's built-in `Bun.password.hash()` (bcrypt) before insertion. The plain-text values shown above are for initial login only.
+
+### Categories and Subcategories
+
+Five top-level categories are created:
+
+| Category | Slug | Icon | Subcategories |
+|---|---|---|---|
+| Mobile | `mobile` | 📱 | Android, iPhone |
+| Laptop | `laptop` | 💻 | Windows, MacBook, Gaming Laptop |
+| Tablet | `tablet` | 📲 | iPad, Android Tablet |
+| Accessories | `accessory` | 🎧 | Headphone, Charger & Cable, Case & Cover |
+| Smartwatch | `smartwatch` | ⌚ | Apple Watch |
+
+### Products
+
+43 sample products are seeded across all five categories, spanning brands including Apple, Samsung, Xiaomi, Google, OnePlus, Sony, Anker, Asus, Lenovo, Dell, and more. Products are inserted without thumbnail images; the `ProductCard` component renders a placeholder until real photos are uploaded through the admin panel.
+
+### Discount Code
+
+| Code | Type | Value | Minimum Order |
+|---|---|---|---|
+| `WELCOME10` | `percentage` | 10% | 500,000 (toman) |
+
+The `WELCOME10` code is active by default with no expiry date and no usage cap. Customers can apply it at checkout for a 10% discount on orders over 500,000 toman.
+
+<Note>
+  Drizzle Studio is available at [http://localhost:4983](http://localhost:4983)
+  while `bun run db:studio` is running. It provides a full visual interface for
+  browsing tables, inspecting foreign-key relations, filtering rows, and running
+  custom SQL queries — no separate database GUI client required.
+</Note>

@@ -1,0 +1,147 @@
+---
+title: "Admin Dashboard: Manage Products, Orders, and Stock"
+sidebarTitle: "Admin Dashboard"
+description: "The admin-only dashboard at /dashboard lets authorized users manage product inventory, review orders, update delivery status, and edit stock levels."
+---
+
+The Shockly Shop admin dashboard is a protected area of `apps/web` mounted at `/dashboard`. It is accessible only to users whose JWT payload carries `role: admin`. The dashboard provides a full-featured back-office interface: an orders overview that acts as the default landing page, a product CRUD table, a delivery management screen, and an inline stock/price editor — all driven by the same NestJS API that powers the storefront.
+
+## Dashboard Routes
+
+| Path | Feature |
+|------|---------|
+| `/dashboard` | Redirects immediately to `/dashboard/orders` — the default admin view. |
+| `/dashboard/orders` | Paginated order list with filters for delivery status and sort by total price or creation date; click any row to open an order detail dialog where the admin can mark the order as delivered. |
+| `/dashboard/products` | Product data-table with category filter, edit (opens `EditProductDialog`), and delete (opens `DeleteDialog` with confirmation). |
+| `/dashboard/stocks` | Inline editable data-table for adjusting product price and stock quantity in bulk; changes are batched and saved with a single "Save" button. |
+
+## Access Control
+
+All dashboard routes are guarded by a combination of a JWT strategy and a server-side role check.
+
+- Users authenticate at `/authentication` using their username and password. On success the API returns a JWT that is stored in `localStorage` under the `loginUser` key.
+- The NestJS API enforces a `RolesGuard` on every dashboard-related endpoint. Requests whose decoded JWT does not contain `role: "admin"` receive a `403 Forbidden` response.
+- The Next.js frontend additionally reads the stored token on page load and redirects non-admin visitors away from `/dashboard/**` before the page renders.
+
+<Tip>
+  The seeded admin account ready to use immediately after running the database seed is:
+
+  **Username:** `admin`  
+  **Password:** `admin123`
+
+  Log in at `/authentication`, then navigate to `/dashboard` to access all management features.
+</Tip>
+
+## Product Management
+
+The `/dashboard/products` page renders a `DataTable` (built on TanStack Table) where each row represents one product. The following operations are available:
+
+**Create a product** — open the `EditProductDialog` in create mode. The multipart form (`multipart/form-data`) accepts:
+
+<ParamField body="name" type="string" required>
+  Display name of the product shown on the storefront.
+</ParamField>
+
+<ParamField body="brand" type="string" required>
+  Brand / manufacturer name (e.g. Samsung, Apple).
+</ParamField>
+
+<ParamField body="description" type="string" required>
+  Rich-text product description rendered in the detail page accordion.
+</ParamField>
+
+<ParamField body="price" type="number" required>
+  Unit price in Toman (Iranian currency).
+</ParamField>
+
+<ParamField body="quantity" type="integer" required>
+  Initial stock quantity; shown as "X items in stock" on the product page.
+</ParamField>
+
+<ParamField body="category" type="uuid" required>
+  The parent category UUID, selected from the category dropdown.
+</ParamField>
+
+<ParamField body="subcategory" type="uuid">
+  Optional subcategory UUID for finer-grained classification.
+</ParamField>
+
+<ParamField body="thumbnail" type="file" required>
+  Primary product image — displayed in product cards and as the default gallery image.
+</ParamField>
+
+<ParamField body="images" type="file[]">
+  Additional gallery images cycled in the `ImagePreview` component on the detail page.
+</ParamField>
+
+**Edit a product** — click the ⋯ actions menu on any row and select "Edit". The same dialog pre-fills existing values; only changed fields are sent in the `PATCH /api/products/:id` request.
+
+**Delete a product** — select "Delete" from the actions menu. A `DeleteDialog` asks for confirmation before sending `DELETE /api/products/:id`.
+
+The table header for the "Brand" column renders a `FilterCategories` component that appends a `?category=<uuid>` query param to the URL, causing the table to refetch with only that category's products.
+
+## Order Management
+
+The `/dashboard/orders` page gives admins a complete view of every order placed on the platform.
+
+**Listing and filtering** — the `FilterOrders` component above the table lets admins filter by `deliveryStatus` (pending / delivered) and page through results. The "Total price" and "Order date" column headers are clickable `DropDownSort` components that toggle ascending/descending sort via URL query params.
+
+**Order detail dialog** — clicking any row opens `OrderDetailDialog`, which shows:
+- Customer name, phone number, and delivery address
+- Itemised product list with quantities and subtotals
+- Requested delivery date
+- Current delivery status
+
+**Marking as delivered** — inside the dialog, if `deliveryStatus === false` (not yet delivered), the button reads "Review and confirm order". Clicking it sends `PATCH /api/orders/:id` with `{ deliveryStatus: true }`, which updates the order record and refetches the list.
+
+```typescript
+// Column action cell — dashboard/orders/page.tsx
+cell: ({ row }) => {
+  const order = row.original;
+  return (
+    <Button onClick={() => handleShowDetail(order)} variant="ghost">
+      <p className="bg-primary-light p-2 rounded-md">
+        {order.deliveryStatus === false
+          ? "Review and confirm order"
+          : "View order"}
+      </p>
+    </Button>
+  );
+},
+```
+
+## Stock Management
+
+The `/dashboard/stocks` page provides a fast bulk-edit interface for two key product fields: **price** and **quantity** (stock level).
+
+Each row renders `EditableCell` components — inline input fields that are editable directly in the table. Edits are tracked in a mutable `ref` (`copyRef`) that shadows the original fetched data. When the admin clicks **Save**, the page:
+
+1. Uses `_.differenceWith` (lodash deep-diff) to compute only the rows that changed.
+2. Fires a parallel batch of `PATCH /api/products/:id` calls — one per changed product.
+3. Shows a success toast and refetches the table on completion.
+
+This approach avoids unnecessary API calls when only a subset of products was modified.
+
+```typescript
+// Batch save — only sends changed rows
+const differences = _.differenceWith(
+  copyRef.current,
+  products?.data.products ?? [],
+  _.isEqual
+);
+if (differences.length) {
+  await axios.all(
+    differences.map((prod) =>
+      instance.patch(`/products/${prod.id}`, {
+        name: prod.name,
+        price: prod.price,
+        quantity: prod.quantity,
+      })
+    )
+  );
+}
+```
+
+<Note>
+  The `DropDownSort` components in the stocks table header allow sorting the view by price or quantity before editing, making it easy to identify out-of-stock items (sort by quantity ascending) or the highest-priced products (sort by price descending) in one click.
+</Note>

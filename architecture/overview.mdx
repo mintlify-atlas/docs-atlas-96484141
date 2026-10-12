@@ -1,0 +1,168 @@
+---
+title: "Shockly Shop Architecture and Monorepo Structure"
+sidebarTitle: "Overview"
+description: "A deep dive into the dual-app Bun monorepo powering Shockly Shop, covering the NestJS API, Next.js storefront, and all shared cross-cutting concerns."
+---
+
+Shockly Shop is built as a **Bun workspace monorepo** containing two independent applications: a NestJS + Fastify REST API and a Next.js storefront with an integrated admin dashboard. Both apps share a single `bun.lock` at the repository root, making dependency management unified while keeping each application fully independent in its runtime, port, and deployment concerns.
+
+## Monorepo Layout
+
+The top-level directory structure organises source code, configuration, and shared assets:
+
+```text
+shockly-full/
+├── apps/
+│   ├── api/          # NestJS + Fastify backend (port 3001)
+│   └── web/          # Next.js storefront + admin (port 3002)
+├── package.json      # Bun workspace root
+└── bun.lock
+```
+
+Run both applications simultaneously from the root with `bun run dev`. Individual apps can be started in isolation with `bun run dev:api` and `bun run dev:web`.
+
+## Backend Architecture
+
+The API is a **NestJS** application that exposes a RESTful JSON interface under the `/api` global prefix. Every feature area is encapsulated in its own NestJS module:
+
+| Module | Responsibility |
+|---|---|
+| `AuthModule` | JWT-based authentication, access & refresh token issuance |
+| `UsersModule` | User registration, profile management, role assignment |
+| `ProductsModule` | Product CRUD, slug generation, image handling |
+| `CategoriesModule` | Top-level product categories |
+| `SubcategoriesModule` | Second-level categories nested under a parent category |
+| `OrdersModule` | Order lifecycle from creation to fulfilment |
+| `CartModule` | Per-user persistent shopping cart |
+| `PaymentsModule` | Payment initiation and verification |
+| `DiscountsModule` | Discount code creation, validation, and redemption |
+| `MediaModule` | Multipart file uploads served as static images |
+| `JobsModule` | BullMQ queue producers and workers for async processing |
+| `DbModule` | Drizzle ORM client and schema injection |
+
+<Note>
+  Shockly Shop uses **Fastify** as the HTTP adapter instead of the NestJS default of Express. Fastify's lower overhead and native JSON serialisation deliver meaningfully higher throughput, which is important for product listing and checkout endpoints under peak load. The Fastify adapter is configured in `main.ts` via `NestFastifyApplication` and `FastifyAdapter`.
+</Note>
+
+### API Entrypoint
+
+The server binds to `0.0.0.0` on the port defined by the `PORT` environment variable (default `3001`). On startup, two additional logs are emitted:
+
+```
+🚀 Server running on http://localhost:3001
+📚 Swagger docs at http://localhost:3001/api/docs
+```
+
+Interactive OpenAPI documentation is available at `/api/docs` (Swagger UI) and the raw JSON schema at `/api/docs-json`.
+
+## Frontend Architecture
+
+The web application is a **Next.js** App Router project that serves both the customer-facing storefront and an admin dashboard from the same deployment.
+
+**Storefront routes:**
+
+| Route | Purpose |
+|---|---|
+| `/` | Homepage — featured products and hero section |
+| `/products` | Full product catalogue with filtering |
+| `/products/[slug]` | Individual product detail page |
+| `/cart` | Shopping cart review |
+| `/checkout` | Order placement and payment |
+
+**Admin dashboard routes:**
+
+| Route | Purpose |
+|---|---|
+| `/dashboard` | Analytics overview |
+| `/dashboard/products` | Product management (create, update, delete) |
+| `/dashboard/orders` | Order management and status updates |
+| `/dashboard/stocks` | Inventory level monitoring |
+
+**Authentication:**
+
+A dedicated authentication page handles sign-in and sign-up flows, issuing JWT access tokens that are stored client-side and attached to subsequent API requests.
+
+## Request / Response Envelope
+
+Every API response — success or paginated collection — is wrapped by the global `TransformInterceptor` in a consistent envelope shape:
+
+```typescript
+// apps/api/src/common/interceptors/transform.interceptor.ts
+@Injectable()
+export class TransformInterceptor<T> implements NestInterceptor<T, Response<T>> {
+  intercept(_context: ExecutionContext, next: CallHandler<T>): Observable<Response<T>> {
+    return next.handle().pipe(
+      map((data) => ({
+        status: 'success',
+        ...((data && typeof data === 'object') ? data : { data }),
+      })),
+    );
+  }
+}
+```
+
+A typical successful response looks like this:
+
+```json
+{
+  "status": "success",
+  "data": {
+    "id": "e3b0c442-98fc-1c14-9afb-f4c8996fb924",
+    "name": "Wireless Headphones Pro",
+    "price": "129.99"
+  }
+}
+```
+
+Errors bypass the interceptor and are handled by the global `AllExceptionsFilter`, which returns a structured error envelope:
+
+```json
+{
+  "statusCode": 404,
+  "timestamp": "2024-11-01T12:00:00.000Z",
+  "path": "/api/products/nonexistent-slug",
+  "message": "Product not found"
+}
+```
+
+## Rate Limiting
+
+The global `ThrottlerModule` is configured at the `AppModule` level and protects every endpoint without requiring per-route decoration:
+
+```typescript
+ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }])
+```
+
+Each client IP is limited to **100 requests per 60-second window**. Clients that exceed the limit receive a `429 Too Many Requests` response.
+
+## Global Validation
+
+All incoming request bodies are processed by a global `ValidationPipe` configured with three key options:
+
+```typescript
+new ValidationPipe({
+  whitelist: true,           // strips unknown properties automatically
+  forbidNonWhitelisted: true, // throws 400 if unknown properties are present
+  transform: true,           // coerces plain objects to DTO class instances
+})
+```
+
+This ensures that only explicitly declared DTO fields ever reach controller handlers, providing a hard guarantee against mass-assignment vulnerabilities.
+
+## CORS
+
+The API allows cross-origin requests from the following origins, covering local development ports for both frontend and API servers:
+
+```typescript
+app.enableCors({
+  origin: [
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'http://localhost:3002',
+    'http://localhost:3003',
+  ],
+  credentials: true,
+});
+```
+
+The `credentials: true` flag enables cookies and `Authorization` headers to be included in cross-origin requests, which is required for the JWT refresh token flow.

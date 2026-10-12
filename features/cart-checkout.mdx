@@ -1,0 +1,156 @@
+---
+title: "Cart and Checkout Flow in Shockly Shop"
+sidebarTitle: "Cart & Checkout"
+description: "How Shockly Shop handles cart persistence, server-side cart operations, discount code validation, and the full checkout-to-payment flow."
+---
+
+Shockly Shop implements a dual-layer cart and checkout workflow. Cart state is maintained both on the frontend (Redux + `redux-persist`) for instant UI responsiveness and on the server (NestJS `/api/cart` endpoints) for authenticated users, ensuring that a customer's basket is never lost when they switch devices or refresh the page. Checkout converts that cart into an order, optionally applies a discount code, and hands off to the payment provider.
+
+## Cart Persistence
+
+Cart data is stored in two places simultaneously:
+
+**Frontend (Redux Toolkit + redux-persist)** — The `cartSlice` holds a `cartItems: CartItem[]` array where each entry contains the full `Products` object and a `quantity` counter. The entire Redux store is persisted to `localStorage` by `redux-persist` (key: `root`). This means the cart survives page refreshes, tab closes, and browser restarts without any server round-trip.
+
+```typescript
+// cartSlice state shape
+export interface CartState {
+  cartItems: CartItem[];   // CartItem = { product: Products; quantity: number }
+}
+```
+
+**Server-side (NestJS cart module)** — Authenticated users also have their cart mirrored in the `cart_items` database table. Every add / update / remove operation can be replicated to the API so the cart is accessible from any device. The `GET /api/cart` endpoint returns items joined with full product details plus a computed `totalPrice`.
+
+## Cart Operations
+
+All server-side cart endpoints require a valid JWT (the user's `Authorization: Bearer <token>` header).
+
+<ParamField path="productId" type="uuid">
+  UUID of the product to add. Used in `POST /api/cart`.
+</ParamField>
+
+<ParamField path="quantity" type="integer">
+  Number of units. Defaults to `1` for add; send `0` to `PATCH` to trigger an automatic removal.
+</ParamField>
+
+| Operation | Method & Path | Behaviour |
+|-----------|--------------|-----------|
+| **Get cart** | `GET /api/cart` | Returns `{ items, totalPrice }` — items include populated product objects. |
+| **Add item** | `POST /api/cart` | Body: `{ productId, quantity }`. If the product is already in the cart the quantities are summed; otherwise a new row is inserted. |
+| **Update quantity** | `PATCH /api/cart/:itemId` | Body: `{ quantity }`. Setting `quantity` to `0` automatically calls `removeItem` — no separate delete is needed. |
+| **Remove item** | `DELETE /api/cart/:itemId` | Deletes the specific cart item row for the authenticated user. |
+| **Clear cart** | `DELETE /api/cart` | Deletes every cart item belonging to the current user (called after successful payment). |
+
+```typescript
+// cart.service.ts — add-item logic (server)
+async addItem(userId: string, dto: AddToCartDto) {
+  const existing = await this.db.query.cartItems.findFirst({
+    where: and(eq(cartItems.user, userId), eq(cartItems.product, dto.productId)),
+  });
+
+  if (existing) {
+    // Increment existing row
+    const [updated] = await this.db
+      .update(cartItems)
+      .set({ quantity: existing.quantity + dto.quantity, updatedAt: new Date() })
+      .where(eq(cartItems.id, existing.id))
+      .returning();
+    return { data: { item: updated } };
+  }
+
+  // Create new row
+  const [item] = await this.db
+    .insert(cartItems)
+    .values({ user: userId, product: dto.productId, quantity: dto.quantity })
+    .returning();
+  return { data: { item } };
+}
+```
+
+## Checkout Flow
+
+<Steps>
+  <Step title="Review cart at /cart">
+    The customer visits `/cart` to see all items, per-item subtotals (quantity × price), and the grand total computed by the `totalPriceSelector` Redux selector. Each line item has a `CartProductCounter` for adjusting quantity and a trash button to remove it.
+  </Step>
+
+  <Step title="Navigate to /checkout">
+    The "Confirm and continue" button links to `/checkout`. Unauthenticated users are detected via `localStorage.getItem("loginUser")` and automatically redirected to `/authentication?checkout=true` after a 3-second grace period; after login they are returned directly to checkout.
+  </Step>
+
+  <Step title="Optionally apply a discount code">
+    Before submitting, the customer can enter a promo code. The frontend calls `POST /api/discounts/validate` with `{ code, orderAmount }`. On success the API returns `{ discountAmount, finalAmount }` which the UI displays as a discount line in the summary.
+  </Step>
+
+  <Step title="Choose a delivery date">
+    The checkout form includes a `DatePicker` (react-multi-date-picker, Persian calendar) that enforces a minimum date of today + 3 days. The selected date is submitted as a Unix timestamp.
+  </Step>
+
+  <Step title="Submit the order — POST /api/orders">
+    On form submission the frontend POSTs:
+    ```json
+    {
+      "user": "<userId>",
+      "products": [{ "product": "<productId>", "count": 2 }],
+      "deliveryDate": "2025-08-01T00:00:00.000Z"
+    }
+    ```
+    The API creates the order record and returns `{ order: { id: "<orderId>", ... } }`.
+  </Step>
+
+  <Step title="Initiate payment — POST /api/payments/initiate">
+    Immediately after order creation, the frontend POSTs `{ orderId, callbackUrl }` to `/api/payments/initiate`. The response includes a `redirectUrl` (the payment gateway URL) and a `providerRef` (the provider's transaction reference).
+
+    ```typescript
+    const paymentRes = await instance.post("/payments/initiate", { orderId });
+    const { redirectUrl, providerRef } = paymentRes.data.data;
+    ```
+  </Step>
+
+  <Step title="Redirect to payment gateway">
+    The frontend parses the `redirectUrl` returned by the provider and extracts `?success=` and `?ref=` query params (in the mock provider these are embedded directly in the callback URL). The user is navigated to `/checkout/result?success=...&ref=...&orderId=...`.
+  </Step>
+
+  <Step title="Verify payment — POST /api/payments/verify">
+    The `/checkout/result` page reads `success` and `ref` from the URL. If `success === "true"`, it calls `POST /api/payments/verify` with `{ providerRef, orderId }`. On a successful verify:
+    - The payment record is updated to `status: "success"`.
+    - The order is updated to `status: "paid"` and `deliveryStatus: false`.
+    - The Redux cart is cleared (`dispatch(clear())`).
+    - The user is shown a success message and redirected to `/` after 2 seconds.
+
+    If `success === "false"` (or the verify call fails), an error UI is shown with a "Return to cart" button.
+  </Step>
+</Steps>
+
+## Discount Application
+
+A discount code is validated before the order is created so the discounted total is used when building the order. The validation endpoint checks four conditions server-side:
+
+1. The code exists and `isActive === true`.
+2. The code has not expired (`expiresAt` is null or in the future).
+3. The usage cap has not been reached (`usedCount < maxUses`, or `maxUses` is null for unlimited).
+4. The order amount meets any `minOrderAmount` threshold.
+
+```typescript
+// POST /api/discounts/validate — request body
+{
+  "code": "WELCOME10",
+  "orderAmount": 5000000
+}
+
+// Successful response
+{
+  "data": {
+    "valid": true,
+    "discountAmount": 500000,
+    "finalAmount": 4500000,
+    "discount": { "code": "WELCOME10", "type": "percentage", "value": "10.00", ... }
+  }
+}
+```
+
+Once the validated `finalAmount` is known, the frontend uses that figure as the order total before posting to `POST /api/orders`. After the order is created successfully, the API increments `usedCount` on the discount row via `applyDiscount(code)`.
+
+<Warning>
+  Discount validation is intentionally separated from order creation. Always call `POST /api/discounts/validate` **before** `POST /api/orders` and use the returned `finalAmount` as the order total. Submitting an order without validating first will not apply any discount.
+</Warning>

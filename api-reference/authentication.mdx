@@ -1,0 +1,337 @@
+---
+title: "Authenticate Requests to the Shockly Shop API"
+sidebarTitle: "Authentication"
+description: "Obtain JWT access and refresh tokens via signup or login, use the access token on protected routes, rotate tokens with the refresh endpoint, and understand role-based access control."
+---
+
+The Shockly Shop API uses **JSON Web Tokens (JWT)** for authentication. Every auth flow issues two tokens — a short-lived **access token** and a long-lived **refresh token** — following a secure rotation pattern. Protected endpoints verify the access token on every request, and when it expires you exchange the refresh token for a brand-new pair without requiring the user to log in again.
+
+---
+
+## Token Lifecycle
+
+<Steps>
+  <Step title="Register or Login">
+    Call `POST /api/auth/signup` or `POST /api/auth/login`. Both endpoints return
+    an `accessToken` and a `refreshToken`.
+  </Step>
+  <Step title="Use the Access Token">
+    Include the access token in the `Authorization: Bearer` header of every
+    request to a protected endpoint. Access tokens are **valid for 15 minutes**
+    (configured via `JWT_ACCESS_EXPIRES_IN`).
+  </Step>
+  <Step title="Rotate via Refresh Token">
+    When the access token expires, call `POST /api/auth/token` with the refresh
+    token in the request body. You receive a fresh token pair. Refresh tokens are
+    **valid for 7 days** (configured via `JWT_REFRESH_EXPIRES_IN`).
+  </Step>
+  <Step title="Logout">
+    Call `POST /api/auth/logout` with the access token. The server nullifies the
+    stored refresh token, invalidating the entire session.
+  </Step>
+</Steps>
+
+<Warning>
+  Access tokens are short-lived by design. Never store refresh tokens in
+  `localStorage` — use an `HttpOnly` cookie or secure storage to prevent XSS
+  exfiltration. If a refresh token is compromised, call `/api/auth/logout`
+  immediately to invalidate it server-side.
+</Warning>
+
+---
+
+## Register a New User
+
+```
+POST /api/auth/signup
+```
+
+Creates a new account with the `customer` role (the default). Returns a full token pair and the user object on success.
+
+### Request body
+
+<ParamField body="firstname" type="string" required>
+  The user's first name. Example: `"Ali"`.
+</ParamField>
+
+<ParamField body="lastname" type="string" required>
+  The user's last name. Example: `"Rezaei"`.
+</ParamField>
+
+<ParamField body="username" type="string" required>
+  A unique username used for login. Must not already exist — returns `409` if
+  taken. Example: `"ali123"`.
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  Account password. **Minimum 6 characters.** Stored as a hashed value; never
+  returned in responses.
+</ParamField>
+
+<ParamField body="phoneNumber" type="string">
+  Optional phone number. Example: `"09123456789"`.
+</ParamField>
+
+<ParamField body="address" type="string">
+  Optional delivery address. Example: `"Tehran, Vali-Asr Street"`.
+</ParamField>
+
+### Example request
+
+```bash
+curl -X POST http://localhost:3001/api/auth/signup \
+  -H "Content-Type: application/json" \
+  -d '{
+    "firstname": "Ali",
+    "lastname": "Rezaei",
+    "username": "ali123",
+    "password": "secret123",
+    "phoneNumber": "09123456789",
+    "address": "Tehran, Vali-Asr Street"
+  }'
+```
+
+### Example response `201 Created`
+
+```json
+{
+  "status": "success",
+  "token": {
+    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+  },
+  "data": {
+    "user": {
+      "id": "9f4e2a1b-3c7d-4e0f-a1b2-c3d4e5f60718",
+      "firstname": "Ali",
+      "lastname": "Rezaei",
+      "username": "ali123",
+      "phoneNumber": "09123456789",
+      "address": "Tehran, Vali-Asr Street",
+      "role": "customer",
+      "createdAt": "2024-06-01T10:00:00.000Z",
+      "updatedAt": "2024-06-01T10:00:00.000Z"
+    }
+  }
+}
+```
+
+<Expandable title="409 Conflict — username already taken">
+```json
+{
+  "statusCode": 409,
+  "timestamp": "2024-06-01T10:01:00.000Z",
+  "path": "/api/auth/signup",
+  "message": "این نام کاربری قبلا ثبت شده است"
+}
+```
+</Expandable>
+
+---
+
+## Login
+
+```
+POST /api/auth/login
+```
+
+Authenticates an existing user with their username and password, returning a fresh token pair.
+
+### Request body
+
+<ParamField body="username" type="string" required>
+  The account username. Example: `"ali123"`.
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  The account password. Example: `"secret123"`.
+</ParamField>
+
+### Example request
+
+```bash
+curl -X POST http://localhost:3001/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "ali123",
+    "password": "secret123"
+  }'
+```
+
+### Example response `200 OK`
+
+```json
+{
+  "status": "success",
+  "token": {
+    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+  },
+  "data": {
+    "user": {
+      "id": "9f4e2a1b-3c7d-4e0f-a1b2-c3d4e5f60718",
+      "firstname": "Ali",
+      "lastname": "Rezaei",
+      "username": "ali123",
+      "phoneNumber": "09123456789",
+      "address": "Tehran, Vali-Asr Street",
+      "role": "customer",
+      "createdAt": "2024-06-01T10:00:00.000Z",
+      "updatedAt": "2024-06-01T10:00:00.000Z"
+    }
+  }
+}
+```
+
+<Expandable title="401 Unauthorized — invalid credentials">
+```json
+{
+  "statusCode": 401,
+  "timestamp": "2024-06-01T10:05:00.000Z",
+  "path": "/api/auth/login",
+  "message": "نام کاربری یا کلمه عبور اشتباه است"
+}
+```
+</Expandable>
+
+---
+
+## Using the Access Token
+
+Pass the `accessToken` value as a **Bearer token** in the `Authorization` header of every request to a protected endpoint:
+
+```bash
+curl -H "Authorization: Bearer <accessToken>" \
+     http://localhost:3001/api/cart
+```
+
+The `JwtStrategy` extracts the token from the `Authorization: Bearer` header, verifies it against `JWT_ACCESS_SECRET`, and attaches the decoded user to `req.user`. If the token is missing or expired the endpoint returns `401 Unauthorized`.
+
+<Note>
+  The `password` and `refreshToken` fields are **never** included in the user object
+  attached to the request. Only `id`, `username`, `role`, and profile fields are
+  available to route handlers.
+</Note>
+
+---
+
+## Refresh Tokens
+
+```
+POST /api/auth/token
+```
+
+Exchange a valid refresh token for a brand-new `accessToken` and `refreshToken` pair. The old refresh token is invalidated and replaced in the database atomically.
+
+### How to send the refresh token
+
+The `JwtRefreshStrategy` reads the refresh token from the **request body field `refreshToken`** (not from the `Authorization` header):
+
+<ParamField body="refreshToken" type="string" required>
+  The refresh token obtained from the last signup, login, or token-refresh call.
+</ParamField>
+
+### Example request
+
+```bash
+curl -X POST http://localhost:3001/api/auth/token \
+  -H "Content-Type: application/json" \
+  -d '{
+    "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+  }'
+```
+
+### Example response `200 OK`
+
+```json
+{
+  "status": "success",
+  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+<Expandable title="401 Unauthorized — invalid or expired refresh token">
+```json
+{
+  "statusCode": 401,
+  "timestamp": "2024-06-01T10:10:00.000Z",
+  "path": "/api/auth/token",
+  "message": "Unauthorized"
+}
+```
+</Expandable>
+
+<Note>
+  The strategy validates that the `refreshToken` in the request body **exactly matches**
+  the hashed token stored in the database for that user. Replayed or stolen tokens
+  that don't match will be rejected with `401`.
+</Note>
+
+---
+
+## Logout
+
+```
+POST /api/auth/logout
+```
+
+Invalidates the current session by setting the user's stored `refreshToken` to `null` in the database. Subsequent calls to `/api/auth/token` with the old refresh token will fail.
+
+This endpoint is **protected** — you must send a valid access token:
+
+```bash
+curl -X POST http://localhost:3001/api/auth/logout \
+  -H "Authorization: Bearer <accessToken>"
+```
+
+### Example response `200 OK`
+
+```json
+{
+  "status": "success"
+}
+```
+
+---
+
+## Role-Based Access Control
+
+Every user account has a **role** field assigned at registration:
+
+| Role | Description |
+|---|---|
+| `customer` | Default role. Can manage their own cart, orders, and profile. |
+| `admin` | Full access. Can manage products, categories, all users, all orders, and discounts. |
+
+Admin-only endpoints are protected by a `RolesGuard`. Calling them with a `customer` token returns `403 Forbidden`:
+
+```json
+{
+  "statusCode": 403,
+  "timestamp": "2024-06-01T10:20:00.000Z",
+  "path": "/api/products",
+  "message": "Forbidden resource"
+}
+```
+
+<Warning>
+  Admin accounts should only be created directly in the database or through a
+  controlled seed script — there is no public-facing "become admin" endpoint.
+  Never expose admin credentials or long-lived admin tokens in client-side code.
+</Warning>
+
+### Example: checking the role in a response
+
+After login you can inspect the `role` field on the returned `user` object to drive UI permissions on the client side:
+
+```typescript
+const { token, data } = await loginResponse.json();
+
+if (data.user.role === "admin") {
+  // show admin dashboard link
+}
+
+// Store tokens securely
+sessionStorage.setItem("accessToken", token.accessToken);
+```

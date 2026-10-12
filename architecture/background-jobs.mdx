@@ -1,0 +1,204 @@
+---
+title: "Background Jobs and Async Processing with BullMQ"
+sidebarTitle: "Background Jobs"
+description: "How Shockly Shop uses BullMQ and Redis to process orders, verify payments, sync inventory, and send notifications outside the request lifecycle."
+---
+
+Shockly Shop offloads time-consuming and unreliable work — payment verification, inventory adjustments, and email delivery — to a **BullMQ** queue system backed by **Redis**. This keeps API response times fast and predictable: a controller enqueues a job and immediately returns a response to the client, while one or more worker processes pick up and execute the job asynchronously. The `JobsModule` wires together producers (which add jobs) and processors (which consume them) through NestJS's `@nestjs/bullmq` integration.
+
+## Queue Overview
+
+Two named queues are defined in `jobs.constants.ts` and registered with BullMQ. Each queue has a dedicated processor class running in the same NestJS process.
+
+<CardGroup cols={2}>
+  <Card title="orders" icon="bag-shopping">
+    Handles the core order lifecycle: order confirmation side-effects, payment outcome processing, and product inventory synchronisation. Jobs in this queue have up to **3–5 retry attempts** with exponential or fixed backoff.
+  </Card>
+  <Card title="notifications" icon="bell">
+    Responsible for all outbound communications. Currently implements transactional email delivery (`notification.email`). Designed to be extended with push notifications or SMS without touching order logic.
+  </Card>
+</CardGroup>
+
+## Jobs Producer
+
+`JobsProducer` is an injectable NestJS service that provides a type-safe method for each job type. Inject it into any service that needs to enqueue work:
+
+```typescript
+// apps/api/src/modules/jobs/producers/jobs.producer.ts
+import { InjectQueue } from '@nestjs/bullmq';
+import { Injectable } from '@nestjs/common';
+import { Queue } from 'bullmq';
+import {
+  QUEUE_ORDERS,
+  QUEUE_NOTIFICATIONS,
+  JOB_ORDER_CONFIRMED,
+  JOB_PAYMENT_VERIFIED,
+  JOB_INVENTORY_SYNC,
+  JOB_SEND_EMAIL,
+} from '../jobs.constants';
+
+@Injectable()
+export class JobsProducer {
+  constructor(
+    @InjectQueue(QUEUE_ORDERS) private ordersQueue: Queue,
+    @InjectQueue(QUEUE_NOTIFICATIONS) private notificationsQueue: Queue,
+  ) {}
+
+  async orderConfirmed(orderId: string, userId: string) {
+    await this.ordersQueue.add(JOB_ORDER_CONFIRMED, { orderId, userId }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });
+  }
+
+  async paymentVerified(orderId: string, success: boolean) {
+    await this.ordersQueue.add(JOB_PAYMENT_VERIFIED, { orderId, success }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });
+  }
+
+  async inventorySync(productId: string, delta: number) {
+    await this.ordersQueue.add(JOB_INVENTORY_SYNC, { productId, delta }, { attempts: 5 });
+  }
+
+  async sendEmail(to: string, subject: string, body: string) {
+    await this.notificationsQueue.add(JOB_SEND_EMAIL, { to, subject, body }, { attempts: 3, backoff: { type: 'fixed', delay: 5000 } });
+  }
+}
+```
+
+Each method maps to a named constant so that job names never drift between producer and processor:
+
+```typescript
+// apps/api/src/modules/jobs/jobs.constants.ts
+export const QUEUE_ORDERS        = 'orders';
+export const QUEUE_NOTIFICATIONS = 'notifications';
+
+export const JOB_ORDER_CONFIRMED = 'order.confirmed';
+export const JOB_PAYMENT_VERIFIED = 'payment.verified';
+export const JOB_INVENTORY_SYNC  = 'inventory.sync';
+export const JOB_SEND_EMAIL      = 'notification.email';
+```
+
+## Orders Queue Jobs
+
+The `OrdersProcessor` class handles all three job types dispatched to the `orders` queue:
+
+```typescript
+// apps/api/src/modules/jobs/processors/orders.processor.ts
+@Processor(QUEUE_ORDERS)
+export class OrdersProcessor extends WorkerHost {
+  private readonly logger = new Logger(OrdersProcessor.name);
+
+  async process(job: Job) {
+    switch (job.name) {
+      case JOB_ORDER_CONFIRMED:
+        return this.handleOrderConfirmed(job.data);
+      case JOB_PAYMENT_VERIFIED:
+        return this.handlePaymentVerified(job.data);
+      case JOB_INVENTORY_SYNC:
+        return this.handleInventorySync(job.data);
+      default:
+        this.logger.warn(`Unknown job: ${job.name}`);
+    }
+  }
+  // ...
+}
+```
+
+### `order.confirmed`
+
+Fired immediately after an order row is created in the database. Use this hook to trigger a confirmation email and reserve inventory.
+
+| Property | Type | Description |
+|---|---|---|
+| `orderId` | `string` (UUID) | The newly created order ID |
+| `userId` | `string` (UUID) | The user who placed the order |
+
+**Retry policy:** 3 attempts, exponential backoff starting at 1 second (`1s → 2s → 4s`).
+
+---
+
+### `payment.verified`
+
+Fired after the payment gateway returns a result, whether successful or failed. Downstream handlers should update the order status and, on success, trigger fulfilment.
+
+| Property | Type | Description |
+|---|---|---|
+| `orderId` | `string` (UUID) | The order associated with the payment |
+| `success` | `boolean` | `true` if the payment succeeded, `false` otherwise |
+
+**Retry policy:** 3 attempts, exponential backoff starting at 1 second.
+
+---
+
+### `inventory.sync`
+
+Fired to adjust the `quantity` field on a product record. `delta` is a signed integer — negative values decrement stock (sold), positive values increment it (restocked).
+
+| Property | Type | Description |
+|---|---|---|
+| `productId` | `string` (UUID) | The product whose stock should be adjusted |
+| `delta` | `number` | Signed quantity change (e.g. `-2` for two units sold) |
+
+**Retry policy:** 5 attempts (no backoff configured, uses BullMQ default).
+
+## Notifications Queue Jobs
+
+The `NotificationsProcessor` handles all outbound communication jobs dispatched to the `notifications` queue:
+
+```typescript
+// apps/api/src/modules/jobs/processors/notifications.processor.ts
+@Processor(QUEUE_NOTIFICATIONS)
+export class NotificationsProcessor extends WorkerHost {
+  private readonly logger = new Logger(NotificationsProcessor.name);
+
+  async process(job: Job) {
+    if (job.name === JOB_SEND_EMAIL) {
+      return this.sendEmail(job.data);
+    }
+  }
+
+  private async sendEmail(data: { to: string; subject: string; body: string }) {
+    this.logger.log(`[EMAIL] To: ${data.to} | Subject: ${data.subject}`);
+    // TODO: integrate nodemailer or a transactional email service (Resend, Postmark, etc.)
+  }
+}
+```
+
+### `notification.email`
+
+The single notification job type. Enqueue it from anywhere by calling `JobsProducer.sendEmail()`.
+
+| Property | Type | Description |
+|---|---|---|
+| `to` | `string` | Recipient email address |
+| `subject` | `string` | Email subject line |
+| `body` | `string` | Email body content (plain text or HTML) |
+
+**Retry policy:** 3 attempts, fixed backoff of 5 seconds between each retry — chosen to avoid overwhelming a transactional email provider during transient outages.
+
+## Configuration
+
+BullMQ connects to Redis using values from the validated environment. The connection is configured once in `AppModule` via `BullModule.forRootAsync` and shared across all queues:
+
+```typescript
+// apps/api/src/app.module.ts
+BullModule.forRootAsync({
+  inject: [ConfigService],
+  useFactory: (config: ConfigService) => ({
+    connection: {
+      host: config.get<string>('REDIS_HOST'),
+      port: config.get<number>('REDIS_PORT'),
+    },
+  }),
+}),
+```
+
+The corresponding environment variables, validated at startup by `env.validation.ts`:
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `REDIS_HOST` | `string` | — | Hostname or IP of the Redis instance |
+| `REDIS_PORT` | `number` | `6379` | Port the Redis instance listens on |
+
+Both variables are required — the application will throw at startup if they are missing or invalid.
+
+<Note>
+  BullMQ recommends **Redis 6.2 or later**. Redis 5 is functional but BullMQ will log a warning about missing stream commands that it uses for optimised job delivery. Use Redis 7 in production for the best performance and reliability.
+</Note>

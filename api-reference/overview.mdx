@@ -1,0 +1,251 @@
+---
+title: "Shockly Shop REST API Reference Overview"
+sidebarTitle: "Overview"
+description: "Base URL, API versioning, unified response envelope, error codes, rate limiting, authentication, pagination, and all available resource groups for the Shockly Shop API."
+---
+
+The Shockly Shop API is a RESTful HTTP API built on **NestJS + Fastify** backed by **PostgreSQL** and **Drizzle ORM**. Every endpoint lives under the `/api` prefix and returns JSON. Whether you're building a storefront, an admin dashboard, or a mobile app, everything you need — products, cart, orders, payments, discounts, and more — is available through this single API.
+
+## Base URL
+
+All requests are made to the following base URL in your local development environment:
+
+```
+http://localhost:3001/api
+```
+
+Quick smoke-test to confirm the server is running:
+
+```bash
+curl http://localhost:3001/api/products
+```
+
+<Note>
+  In production, replace `http://localhost:3001` with your deployed domain. The
+  `/api` prefix is always required — it is set globally on the NestJS application.
+</Note>
+
+---
+
+## Interactive Docs
+
+The API ships with a full **Swagger UI** powered by `@nestjs/swagger`. You can browse every endpoint, inspect request/response schemas, and fire live requests directly from your browser.
+
+| Resource | URL |
+|---|---|
+| Swagger UI | `http://localhost:3001/api/docs` |
+| OpenAPI JSON schema | `http://localhost:3001/api/docs-json` |
+
+<Tip>
+  Open [http://localhost:3001/api/docs](http://localhost:3001/api/docs) in your browser,
+  click **Authorize**, and paste your `accessToken` to authenticate all subsequent
+  requests in the UI without manually setting headers.
+</Tip>
+
+---
+
+## Response Envelope
+
+**All** successful responses are wrapped by the global `TransformInterceptor`. The interceptor spreads the controller's return value into a top-level object and adds a `"status": "success"` field, so you always have a consistent shape to destructure on the client.
+
+### Single-resource response
+
+```json
+{
+  "status": "success",
+  "data": {
+    "id": "9f4e2a1b-...",
+    "name": "Samsung Galaxy S24",
+    "price": "25000000.00"
+  }
+}
+```
+
+### Paginated list response
+
+Paginated endpoints (e.g. `/api/products`, `/api/orders`) spread `total`, `page`, and `limit` alongside the `data` array:
+
+```json
+{
+  "status": "success",
+  "data": [
+    { "id": "9f4e2a1b-...", "name": "Samsung Galaxy S24" },
+    { "id": "3c7d1e0f-...", "name": "iPhone 15 Pro" }
+  ],
+  "total": 42,
+  "page": 2,
+  "limit": 10
+}
+```
+
+<Note>
+  Some resource endpoints (e.g. `/api/auth/signup`) return a richer envelope where
+  `token` and `data` are sibling keys. The exact shape for each endpoint is
+  documented in its respective reference page.
+</Note>
+
+---
+
+## Error Responses
+
+When a request fails the global `AllExceptionsFilter` catches the exception and returns a structured error body. Unlike success responses, error bodies are **not** wrapped in a `"status": "success"` envelope.
+
+```json
+{
+  "statusCode": 404,
+  "timestamp": "2024-06-01T10:23:45.000Z",
+  "path": "/api/products/unknown-slug",
+  "message": "Product not found"
+}
+```
+
+For validation errors the `message` field is an array of constraint strings produced by NestJS `ValidationPipe`:
+
+```json
+{
+  "statusCode": 400,
+  "timestamp": "2024-06-01T10:24:00.000Z",
+  "path": "/api/auth/signup",
+  "message": {
+    "message": ["password must be longer than or equal to 6 characters"],
+    "error": "Bad Request",
+    "statusCode": 400
+  }
+}
+```
+
+### Common HTTP status codes
+
+| Code | Meaning |
+|---|---|
+| `400` | Bad Request — request body failed `ValidationPipe` constraints |
+| `401` | Unauthorized — missing, expired, or invalid JWT |
+| `403` | Forbidden — authenticated but insufficient role (e.g. customer hitting admin endpoint) |
+| `404` | Not Found — the requested resource does not exist |
+| `409` | Conflict — duplicate resource (e.g. username already taken) |
+| `429` | Too Many Requests — global rate limit exceeded |
+| `500` | Internal Server Error — unhandled exception; check server logs |
+
+---
+
+## Rate Limiting
+
+A global **ThrottlerModule** guard applies to every endpoint. The limit is:
+
+- **100 requests per 60 seconds** per IP address.
+
+When the limit is exceeded the API returns `HTTP 429 Too Many Requests`:
+
+```json
+{
+  "statusCode": 429,
+  "timestamp": "2024-06-01T10:30:00.000Z",
+  "path": "/api/products",
+  "message": "ThrottlerException: Too Many Requests"
+}
+```
+
+<Note>
+  Standard `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset`
+  headers are included in every throttled response so clients can implement
+  back-off strategies automatically.
+</Note>
+
+---
+
+## Authentication
+
+Protected endpoints require a valid **JWT access token** passed as a Bearer token in the `Authorization` header:
+
+```bash
+curl -H "Authorization: Bearer <accessToken>" \
+     http://localhost:3001/api/cart
+```
+
+Tokens are obtained through the auth endpoints (`/api/auth/signup` and `/api/auth/login`) and rotated using `/api/auth/token`. See the [Authentication](/api-reference/authentication) page for the full token lifecycle, refresh flow, and role-based access details.
+
+---
+
+## Pagination
+
+Endpoints that return lists accept the following query parameters:
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `page` | `number` | `1` | Page number (1-indexed) |
+| `limit` | `number` | `4` | Number of items per page |
+| `sort` | `string` | `-createdAt` | Field to sort by. Prefix with `-` for descending, no prefix for ascending |
+
+**Example** — fetch the second page of products, 10 per page, sorted by price descending:
+
+```bash
+curl "http://localhost:3001/api/products?limit=10&page=2&sort=-price"
+```
+
+<Tip>
+  The `-` prefix on `sort` signals descending order. For example, `sort=price`
+  is ascending (cheapest first) and `sort=-price` is descending (most expensive first).
+  `sort=-createdAt` is the default, showing the newest items first.
+</Tip>
+
+---
+
+## File Uploads
+
+The product create and update endpoints accept image files alongside JSON fields. These requests must use `multipart/form-data` rather than `application/json`.
+
+```bash
+curl -X POST http://localhost:3001/api/products \
+  -H "Authorization: Bearer <accessToken>" \
+  -F "name=Samsung Galaxy S24" \
+  -F "price=25000000" \
+  -F "thumbnail=@/path/to/thumb.jpg" \
+  -F "images=@/path/to/img1.jpg"
+```
+
+<Note>
+  The maximum file size is **5 MB** per file (configurable via the `MAX_FILE_SIZE`
+  environment variable). Uploaded images are served statically from
+  `http://localhost:3001/images/`.
+</Note>
+
+---
+
+## Resources Overview
+
+The API exposes the following resource groups. Each group has its own reference page with full request/response schemas.
+
+<CardGroup cols={2}>
+  <Card title="Auth" icon="lock" href="/api-reference/authentication">
+    Register, login, refresh tokens, and logout. JWT-based access + refresh token
+    rotation with role-based access control.
+  </Card>
+  <Card title="Users" icon="user" href="/api-reference/users">
+    Manage user profiles. Admins can list all users; customers can fetch and update
+    their own profile.
+  </Card>
+  <Card title="Products" icon="tag" href="/api-reference/products">
+    Browse, search, and manage the product catalogue. Supports full-text filtering,
+    pagination, and multipart image uploads.
+  </Card>
+  <Card title="Categories & Subcategories" icon="folder-tree" href="/api-reference/categories">
+    Hierarchical product taxonomy. Categories contain zero or more subcategories,
+    each linked to a slug for SEO-friendly URLs.
+  </Card>
+  <Card title="Cart" icon="cart-shopping" href="/api-reference/cart">
+    Per-user shopping cart. Add, update quantity, remove items, and retrieve the
+    current cart with a computed `totalPrice`.
+  </Card>
+  <Card title="Orders" icon="box" href="/api-reference/orders">
+    Place orders from the cart, track delivery status, and manage order lifecycle
+    (`pending` → `paid` → `fulfilled` → `shipped`).
+  </Card>
+  <Card title="Payments" icon="credit-card" href="/api-reference/payments">
+    Initiate and verify payments. Returns a `redirectUrl` for the payment gateway
+    and confirms the transaction via a verify callback.
+  </Card>
+  <Card title="Discounts" icon="percent" href="/api-reference/discounts">
+    Create and validate percentage or fixed-amount discount codes with optional
+    expiry dates, usage caps, and minimum order amounts.
+  </Card>
+</CardGroup>

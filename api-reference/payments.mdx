@@ -1,0 +1,186 @@
+---
+title: "Payments API: Initiate and Verify Transactions"
+sidebarTitle: "Payments"
+description: "Initiate a payment for an order and receive a gateway redirect URL, then verify the transaction using the provider reference."
+---
+
+Both payment endpoints require a valid JWT (`Authorization: Bearer <accessToken>`). The payments module is built around an injectable `PaymentProvider` interface, making it straightforward to swap the mock provider for a real gateway (e.g. Zarinpal) without touching any other code. In development and test environments the mock provider is active and **always returns a successful payment**.
+
+The typical flow is:
+
+1. **Initiate** — send `POST /api/payments/initiate` with the `orderId` and a `callbackUrl`. Receive a `redirectUrl` and a `providerRef`.
+2. **Redirect** — navigate the user to `redirectUrl` (the payment gateway page).
+3. **Verify** — after the gateway redirects back to your `callbackUrl`, extract `providerRef` and `orderId` from the callback query string, then call `POST /api/payments/verify`.
+
+<Warning>
+  Always extract `providerRef` from the **gateway's callback URL** — do not reuse the `providerRef` returned from the initiate step directly. A mismatch between the ref stored by the gateway and the one you send to `/verify` will cause the verification to fail with a real provider.
+</Warning>
+
+---
+
+## Initiate payment
+
+```bash
+POST /api/payments/initiate
+```
+
+Creates a pending payment record and asks the configured payment provider to generate a checkout session. Returns a `redirectUrl` to send the user to, along with a `providerRef` that identifies this transaction.
+
+<ParamField header="Authorization" type="string" required>
+  `Bearer <accessToken>`
+</ParamField>
+
+<ParamField body="orderId" type="string (UUID)" required>
+  UUID of the order to pay for. The order must exist; otherwise a `404` is returned.
+</ParamField>
+
+<ParamField body="callbackUrl" type="string" required>
+  The URL the payment gateway will redirect the user back to after checkout. The mock provider appends `?success=true&ref=<providerRef>&orderId=<orderId>` to this URL.
+</ParamField>
+
+**Request body**
+
+```json
+{
+  "orderId": "b2c3d4e5-0000-0000-0000-000000000001",
+  "callbackUrl": "https://shop.shockly.ir/checkout/callback"
+}
+```
+
+**Response `201`**
+
+```json
+{
+  "data": {
+    "redirectUrl": "https://shop.shockly.ir/checkout/callback?success=true&ref=e5f6a7b8-0000-0000-0000-000000000005&orderId=b2c3d4e5-0000-0000-0000-000000000001",
+    "providerRef": "e5f6a7b8-0000-0000-0000-000000000005"
+  }
+}
+```
+
+**curl example**
+
+```bash
+curl -X POST https://api.shockly.shop/api/payments/initiate \
+  -H "Authorization: Bearer <accessToken>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "orderId": "b2c3d4e5-0000-0000-0000-000000000001",
+    "callbackUrl": "https://shop.shockly.ir/checkout/callback"
+  }'
+```
+
+---
+
+## Verify payment
+
+```bash
+POST /api/payments/verify
+```
+
+Confirms a payment with the provider using the `providerRef` received from the gateway callback. On a successful verification:
+
+- The payment record's `status` is updated to `success`.
+- The associated order's `status` is advanced to `paid`.
+
+On failure the payment record is marked `failed` and the order remains in its previous state.
+
+<ParamField header="Authorization" type="string" required>
+  `Bearer <accessToken>`
+</ParamField>
+
+<ParamField body="providerRef" type="string" required>
+  The provider reference string received from the gateway's callback URL. This is the value the gateway appended as `ref=...` in the redirect.
+</ParamField>
+
+<ParamField body="orderId" type="string (UUID)" required>
+  UUID of the order being verified. Must match the order used during initiation.
+</ParamField>
+
+**Request body**
+
+```json
+{
+  "providerRef": "e5f6a7b8-0000-0000-0000-000000000005",
+  "orderId": "b2c3d4e5-0000-0000-0000-000000000001"
+}
+```
+
+**Response `200` — success**
+
+```json
+{
+  "data": {
+    "success": true,
+    "message": "پرداخت با موفقیت انجام شد"
+  }
+}
+```
+
+**Response `400` — failure**
+
+```json
+{
+  "status": "error",
+  "statusCode": 400,
+  "message": "Payment failed or ref not found"
+}
+```
+
+**curl example**
+
+```bash
+curl -X POST https://api.shockly.shop/api/payments/verify \
+  -H "Authorization: Bearer <accessToken>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "providerRef": "e5f6a7b8-0000-0000-0000-000000000005",
+    "orderId": "b2c3d4e5-0000-0000-0000-000000000001"
+  }'
+```
+
+---
+
+## Mock provider behavior
+
+In development the `MockPaymentProvider` is registered as the active `PAYMENT_PROVIDER`. Its behavior:
+
+- **`initiatePayment`** — generates a random UUID as `providerRef` and constructs a `redirectUrl` by appending `?success=true&ref=<providerRef>&orderId=<orderId>` to your `callbackUrl`. No external HTTP call is made.
+- **`verifyPayment`** — always resolves `{ success: true }` regardless of the `providerRef` value. This means every initiation → verify cycle succeeds automatically in a local environment.
+
+To use a real gateway, implement the `PaymentProvider` interface and bind it to the `PAYMENT_PROVIDER` token in the payments module — no other code changes are needed.
+
+```typescript
+export interface PaymentProvider {
+  initiatePayment(amount: number, orderId: string, callbackUrl: string): Promise<InitiatePaymentResult>;
+  verifyPayment(providerRef: string, amount: number): Promise<VerifyPaymentResult>;
+}
+```
+
+---
+
+## PaymentProvider result schemas
+
+### InitiatePaymentResult
+
+<ResponseField name="redirectUrl" type="string">
+  URL to redirect the customer to for payment. In development this points back to your `callbackUrl` with success query params already attached.
+</ResponseField>
+
+<ResponseField name="providerRef" type="string">
+  Unique reference token generated by the payment provider for this transaction.
+</ResponseField>
+
+### VerifyPaymentResult
+
+<ResponseField name="success" type="boolean">
+  `true` if the payment was confirmed by the provider; `false` if it failed or was not found.
+</ResponseField>
+
+<ResponseField name="providerRef" type="string">
+  Echo of the `providerRef` that was verified.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Human-readable result message returned by the provider.
+</ResponseField>

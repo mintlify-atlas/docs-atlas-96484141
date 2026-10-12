@@ -1,0 +1,236 @@
+---
+title: "Users API: Profile and Account Management"
+sidebarTitle: "Users"
+description: "Reference for Shockly Shop user endpoints: fetch your own profile, update account details, and admin-only routes for listing and retrieving any user."
+---
+
+The Users module exposes endpoints for reading and updating user accounts. All routes require a valid **access token** in the `Authorization: Bearer <token>` header — unauthenticated requests receive `401 Unauthorized`. The `GET /api/users` and `GET /api/users/:id` endpoints are restricted to users with the `admin` role; regular `customer` accounts will receive `403 Forbidden`.
+
+---
+
+## GET /api/users
+
+Retrieve a paginated list of all registered users. **Admin only.**
+
+### Request headers
+
+| Header | Value |
+|---|---|
+| `Authorization` | `Bearer <accessToken>` |
+
+### Example request
+
+```bash
+curl https://api.shockly.shop/api/users \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+### Example response `200 OK`
+
+```json
+{
+  "status": "success",
+  "data": [
+    {
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "firstname": "Ali",
+      "lastname": "Rezaei",
+      "username": "ali123",
+      "phoneNumber": "09123456789",
+      "address": "Tehran, Valiasr Street",
+      "role": "customer",
+      "createdAt": "2024-06-01T10:00:00.000Z",
+      "updatedAt": "2024-06-01T10:00:00.000Z"
+    }
+  ]
+}
+```
+
+---
+
+## GET /api/users/me
+
+Return the profile of the currently authenticated user. Works for both `customer` and `admin` roles.
+
+### Request headers
+
+| Header | Value |
+|---|---|
+| `Authorization` | `Bearer <accessToken>` |
+
+### Example request
+
+```bash
+curl https://api.shockly.shop/api/users/me \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+### Example response `200 OK`
+
+```json
+{
+  "status": "success",
+  "data": {
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "firstname": "Ali",
+    "lastname": "Rezaei",
+    "username": "ali123",
+    "phoneNumber": "09123456789",
+    "address": "Tehran, Valiasr Street",
+    "role": "customer",
+    "createdAt": "2024-06-01T10:00:00.000Z",
+    "updatedAt": "2024-06-01T10:00:00.000Z"
+  }
+}
+```
+
+---
+
+## GET /api/users/:id
+
+Fetch any user by their UUID. **Admin only.** Responds with `404 Not Found` when no user with the given ID exists.
+
+### Path parameters
+
+<ParamField path="id" type="string (UUID)" required>
+  The UUID of the user to retrieve.
+</ParamField>
+
+### Request headers
+
+| Header | Value |
+|---|---|
+| `Authorization` | `Bearer <accessToken>` |
+
+### Example request
+
+```bash
+curl https://api.shockly.shop/api/users/a1b2c3d4-e5f6-7890-abcd-ef1234567890 \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+### Example response `200 OK`
+
+```json
+{
+  "status": "success",
+  "data": {
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "firstname": "Ali",
+    "lastname": "Rezaei",
+    "username": "ali123",
+    "phoneNumber": "09123456789",
+    "address": "Tehran, Valiasr Street",
+    "role": "customer",
+    "createdAt": "2024-06-01T10:00:00.000Z",
+    "updatedAt": "2024-06-01T10:00:00.000Z"
+  }
+}
+```
+
+---
+
+## PATCH /api/users/me
+
+Update the authenticated user's own profile. All fields are optional — send only the fields you wish to change. The `username` and `role` fields cannot be changed through this endpoint.
+
+### Request headers
+
+| Header | Value |
+|---|---|
+| `Authorization` | `Bearer <accessToken>` |
+
+### Request body
+
+<ParamField body="firstname" type="string">
+  Updated first name.
+</ParamField>
+
+<ParamField body="lastname" type="string">
+  Updated last name.
+</ParamField>
+
+<ParamField body="phoneNumber" type="string">
+  Updated mobile phone number.
+</ParamField>
+
+<ParamField body="address" type="string">
+  Updated delivery address.
+</ParamField>
+
+<ParamField body="password" type="string">
+  New password. Must be at least **6 characters** long. The API will hash the new value before storing it.
+</ParamField>
+
+### Example request
+
+```bash
+curl -X PATCH https://api.shockly.shop/api/users/me \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "phoneNumber": "09199999999",
+    "address": "Isfahan, Chahar Bagh Street"
+  }'
+```
+
+### Example response `200 OK`
+
+```json
+{
+  "status": "success",
+  "data": {
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "firstname": "Ali",
+    "lastname": "Rezaei",
+    "username": "ali123",
+    "phoneNumber": "09199999999",
+    "address": "Isfahan, Chahar Bagh Street",
+    "role": "customer",
+    "createdAt": "2024-06-01T10:00:00.000Z",
+    "updatedAt": "2024-07-15T08:30:00.000Z"
+  }
+}
+```
+
+---
+
+## User schema
+
+The `User` object is returned by all endpoints in this module. The `password` and `refreshToken` fields are **never** included in any response.
+
+<ResponseField name="id" type="string (UUID)">
+  Unique identifier for the user, auto-generated by the database.
+</ResponseField>
+
+<ResponseField name="firstname" type="string">
+  User's first name. Maximum 100 characters.
+</ResponseField>
+
+<ResponseField name="lastname" type="string">
+  User's last name. Maximum 100 characters.
+</ResponseField>
+
+<ResponseField name="username" type="string">
+  Unique username used for login. Maximum 100 characters.
+</ResponseField>
+
+<ResponseField name="phoneNumber" type="string | null">
+  Optional phone number. Maximum 20 characters.
+</ResponseField>
+
+<ResponseField name="address" type="string | null">
+  Optional delivery address.
+</ResponseField>
+
+<ResponseField name="role" type='"customer" | "admin"'>
+  The user's role. Defaults to `"customer"` on signup.
+</ResponseField>
+
+<ResponseField name="createdAt" type="string (ISO 8601)">
+  Timestamp when the account was created.
+</ResponseField>
+
+<ResponseField name="updatedAt" type="string (ISO 8601)">
+  Timestamp of the most recent update to the account.
+</ResponseField>

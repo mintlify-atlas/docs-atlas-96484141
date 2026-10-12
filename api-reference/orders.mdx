@@ -1,0 +1,323 @@
+---
+title: "Orders API: Create and Manage Customer Orders"
+sidebarTitle: "Orders"
+description: "Create customer orders, retrieve order details, and let admins paginate all orders or toggle delivery status."
+---
+
+Every order endpoint requires a valid JWT (`Authorization: Bearer <accessToken>`). Role-based access applies: **admin** users can list all orders and update delivery status, while **customers** can create orders and look up any individual order by ID. The `status` field on an order moves through its lifecycle automatically — do not try to set it directly; it is driven by the payment flow.
+
+<Note>
+  The `status` field is controlled by the payment service. Use `PATCH /api/orders/:id` **only** for toggling `deliveryStatus` (i.e. physical delivery confirmation). Attempting to set `status` via this endpoint will have no effect.
+</Note>
+
+---
+
+## List all orders (admin)
+
+```bash
+GET /api/orders
+```
+
+Returns a paginated list of every order in the system. Requires the `admin` role.
+
+<ParamField header="Authorization" type="string" required>
+  `Bearer <accessToken>` — must belong to an admin user.
+</ParamField>
+
+<ParamField query="limit" type="string" initialValue="4">
+  Maximum number of orders per page. Capped at `100`.
+</ParamField>
+
+<ParamField query="page" type="string" initialValue="1">
+  Page number (1-based).
+</ParamField>
+
+<ParamField query="sort" type="string" initialValue="-createdAt">
+  Sort field. Prefix with `-` for descending order (e.g. `-createdAt`). Omit the prefix for ascending.
+</ParamField>
+
+<ParamField query="deliveryStatus" type="string">
+  Filter by delivery status. Pass `"true"` or `"false"` to narrow results. Omit to return all orders regardless of delivery status.
+</ParamField>
+
+**Response `200`**
+
+```json
+{
+  "page": 1,
+  "per_page": 4,
+  "total": 12,
+  "total_pages": 3,
+  "data": {
+    "orders": [
+      {
+        "id": "b2c3d4e5-0000-0000-0000-000000000001",
+        "user": "f8e7d6c5-0000-0000-0000-000000000099",
+        "products": [
+          { "product": "d4c3b2a1-0000-0000-0000-000000000010", "count": 2 }
+        ],
+        "totalPrice": "50000000.00",
+        "deliveryDate": "2024-07-01T00:00:00.000Z",
+        "deliveryStatus": false,
+        "status": "paid",
+        "paymentRef": "e5f6a7b8-0000-0000-0000-000000000005",
+        "createdAt": "2024-06-15T08:30:00.000Z",
+        "updatedAt": "2024-06-15T09:00:00.000Z"
+      }
+    ]
+  }
+}
+```
+
+**curl example**
+
+```bash
+curl -X GET "https://api.shockly.shop/api/orders?page=1&limit=4&sort=-createdAt" \
+  -H "Authorization: Bearer <adminAccessToken>"
+```
+
+---
+
+## Get order by ID
+
+```bash
+GET /api/orders/:id
+```
+
+Retrieves a single order by its UUID. Any authenticated user may call this endpoint; the service does not restrict it to the order's owner.
+
+<ParamField path="id" type="string (UUID)" required>
+  UUID of the order to retrieve.
+</ParamField>
+
+**Response `200`**
+
+```json
+{
+  "data": {
+    "order": {
+      "id": "b2c3d4e5-0000-0000-0000-000000000001",
+      "user": "f8e7d6c5-0000-0000-0000-000000000099",
+      "products": [
+        { "product": "d4c3b2a1-0000-0000-0000-000000000010", "count": 2 }
+      ],
+      "totalPrice": "50000000.00",
+      "deliveryDate": "2024-07-01T00:00:00.000Z",
+      "deliveryStatus": false,
+      "status": "pending",
+      "paymentRef": null,
+      "createdAt": "2024-06-15T08:30:00.000Z",
+      "updatedAt": "2024-06-15T08:30:00.000Z"
+    }
+  }
+}
+```
+
+**curl example**
+
+```bash
+curl -X GET https://api.shockly.shop/api/orders/b2c3d4e5-0000-0000-0000-000000000001 \
+  -H "Authorization: Bearer <accessToken>"
+```
+
+---
+
+## Create an order
+
+```bash
+POST /api/orders
+```
+
+Creates a new order. `totalPrice` is computed server-side from live product prices — the `totalPrice` value in the body is accepted by the DTO but the server recalculates it to prevent tampering. The initial `status` is always `pending`.
+
+<ParamField body="user" type="string (UUID)" required>
+  UUID of the user placing the order.
+</ParamField>
+
+<ParamField body="products" type="OrderItem[]" required>
+  Array of order line items. Must contain at least one entry.
+</ParamField>
+
+<ParamField body="products[].product" type="string (UUID)" required>
+  UUID of the product being ordered.
+</ParamField>
+
+<ParamField body="products[].count" type="number" required>
+  Quantity of this product. Must be a positive integer (`min: 1`).
+</ParamField>
+
+<ParamField body="deliveryDate" type="string (ISO 8601 date)" >
+  Optional requested delivery date. Example: `"2024-07-15T00:00:00.000Z"`.
+</ParamField>
+
+**Request body**
+
+```json
+{
+  "user": "f8e7d6c5-0000-0000-0000-000000000099",
+  "products": [
+    { "product": "d4c3b2a1-0000-0000-0000-000000000010", "count": 2 }
+  ],
+  "deliveryDate": "2024-07-15T00:00:00.000Z"
+}
+```
+
+**Response `201`**
+
+```json
+{
+  "data": {
+    "order": {
+      "id": "b2c3d4e5-0000-0000-0000-000000000001",
+      "user": "f8e7d6c5-0000-0000-0000-000000000099",
+      "products": [
+        { "product": "d4c3b2a1-0000-0000-0000-000000000010", "count": 2 }
+      ],
+      "totalPrice": "50000000.00",
+      "deliveryDate": "2024-07-15T00:00:00.000Z",
+      "deliveryStatus": false,
+      "status": "pending",
+      "paymentRef": null,
+      "createdAt": "2024-06-15T08:30:00.000Z",
+      "updatedAt": "2024-06-15T08:30:00.000Z"
+    }
+  }
+}
+```
+
+**curl example**
+
+```bash
+curl -X POST https://api.shockly.shop/api/orders \
+  -H "Authorization: Bearer <accessToken>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user": "f8e7d6c5-0000-0000-0000-000000000099",
+    "products": [
+      { "product": "d4c3b2a1-0000-0000-0000-000000000010", "count": 2 }
+    ],
+    "deliveryDate": "2024-07-15T00:00:00.000Z"
+  }'
+```
+
+---
+
+## Update delivery status (admin)
+
+```bash
+PATCH /api/orders/:id
+```
+
+Marks an order's physical delivery status. Requires the `admin` role. This endpoint updates **only** `deliveryStatus` — use the payment flow to advance `status`.
+
+<ParamField path="id" type="string (UUID)" required>
+  UUID of the order to update.
+</ParamField>
+
+<ParamField body="deliveryStatus" type="boolean" required>
+  `true` marks the order as physically delivered; `false` marks it as undelivered.
+</ParamField>
+
+**Request body**
+
+```json
+{
+  "deliveryStatus": true
+}
+```
+
+**Response `200`**
+
+```json
+{
+  "data": {
+    "order": {
+      "id": "b2c3d4e5-0000-0000-0000-000000000001",
+      "deliveryStatus": true,
+      "status": "shipped",
+      "updatedAt": "2024-06-20T14:00:00.000Z"
+    }
+  }
+}
+```
+
+**curl example**
+
+```bash
+curl -X PATCH https://api.shockly.shop/api/orders/b2c3d4e5-0000-0000-0000-000000000001 \
+  -H "Authorization: Bearer <adminAccessToken>" \
+  -H "Content-Type: application/json" \
+  -d '{"deliveryStatus": true}'
+```
+
+---
+
+## Order status lifecycle
+
+The `status` field transitions automatically as the order moves through the payment and fulfillment pipeline. You cannot set it directly through the orders API.
+
+```
+pending  ──► paid (payment verified)  ──► fulfilled  ──► shipped
+    │
+    └──► cancelled
+```
+
+| Status      | Meaning                                                     |
+|-------------|-------------------------------------------------------------|
+| `pending`   | Order created; awaiting payment.                            |
+| `paid`      | Payment verified by `POST /api/payments/verify`.            |
+| `fulfilled` | Order prepared and ready for dispatch.                      |
+| `shipped`   | Order handed to the carrier.                                |
+| `cancelled` | Order cancelled before fulfilment.                          |
+
+---
+
+## Order schema
+
+<ResponseField name="id" type="string (UUID)">
+  Unique identifier of the order.
+</ResponseField>
+
+<ResponseField name="user" type="string (UUID)">
+  UUID of the user who placed the order.
+</ResponseField>
+
+<ResponseField name="products" type="OrderItem[]">
+  Array of line items. Each entry contains a `product` UUID and a `count` integer.
+</ResponseField>
+
+<ResponseField name="products[].product" type="string (UUID)">
+  UUID of the ordered product. Hydrated into a full product object in list responses.
+</ResponseField>
+
+<ResponseField name="products[].count" type="number">
+  Quantity of this product in the order.
+</ResponseField>
+
+<ResponseField name="totalPrice" type="string (numeric)">
+  Total order value computed from live product prices at the time of creation. Stored as a decimal string with 2 decimal places.
+</ResponseField>
+
+<ResponseField name="deliveryDate" type="string (ISO 8601) | null">
+  Customer-requested delivery date, or `null` if not specified.
+</ResponseField>
+
+<ResponseField name="deliveryStatus" type="boolean">
+  Physical delivery confirmation flag. Set by admins via `PATCH /api/orders/:id`.
+</ResponseField>
+
+<ResponseField name="status" type="string (enum)">
+  Order lifecycle state. One of `pending`, `paid`, `fulfilled`, `shipped`, `cancelled`. Managed automatically by the payment and fulfilment services.
+</ResponseField>
+
+<ResponseField name="paymentRef" type="string (UUID) | null">
+  Provider reference UUID from the payment gateway, populated after payment is verified.
+</ResponseField>
+
+<ResponseField name="createdAt" type="string (ISO 8601)">
+  Timestamp when the order was created.
+</ResponseField>
+
+<ResponseField name="updatedAt" type="string (ISO 8601)">
+  Timestamp of the most recent update.
+</ResponseField>

@@ -1,0 +1,267 @@
+---
+title: "Run Shockly Shop Infrastructure with Docker Compose"
+sidebarTitle: "Docker"
+description: "Spin up PostgreSQL 16 and Redis 7 for Shockly Shop using the included Docker Compose file — no manual database installation required."
+---
+
+Shockly Shop's NestJS API depends on two external services: a PostgreSQL 16 database for persistent data storage and a Redis 7 instance for BullMQ job queues and caching. The repository ships an `apps/api/docker-compose.yml` that starts both services with the correct credentials, ports, and named volumes in a single command. This is the recommended approach for local development and staging environments; it eliminates the need to install database engines natively and guarantees the same versions across every machine.
+
+## docker-compose.yml
+
+The full Compose file is located at `apps/api/docker-compose.yml`:
+
+```yaml
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: shockly_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: shockly
+      POSTGRES_PASSWORD: shockly123
+      POSTGRES_DB: shockly_shop
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: shockly_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+volumes:
+  postgres_data:
+  redis_data:
+```
+
+## Services
+
+<CardGroup cols={2}>
+  <Card title="postgres" icon="database">
+    PostgreSQL 16 (Alpine) — the primary relational data store for users,
+    products, orders, payments, cart items, and discount codes.
+  </Card>
+  <Card title="redis" icon="bolt">
+    Redis 7 (Alpine) — used by BullMQ for background job queues and by the API
+    for fast in-memory operations.
+  </Card>
+</CardGroup>
+
+### `postgres`
+
+| Property | Value |
+|---|---|
+| **Image** | `postgres:16-alpine` |
+| **Container name** | `shockly_postgres` |
+| **Restart policy** | `unless-stopped` |
+| **Host → Container port** | `5432:5432` |
+| **Named volume** | `postgres_data` → `/var/lib/postgresql/data` |
+
+The service is pre-configured with the following environment variables, which match the default `DATABASE_URL` in `apps/api/.env.example`:
+
+| Variable | Value |
+|---|---|
+| `POSTGRES_USER` | `shockly` |
+| `POSTGRES_PASSWORD` | `shockly123` |
+| `POSTGRES_DB` | `shockly_shop` |
+
+The corresponding `DATABASE_URL` for your `.env` file is:
+
+```bash
+DATABASE_URL=postgresql://shockly:shockly123@localhost:5432/shockly_shop
+```
+
+### `redis`
+
+| Property | Value |
+|---|---|
+| **Image** | `redis:7-alpine` |
+| **Container name** | `shockly_redis` |
+| **Restart policy** | `unless-stopped` |
+| **Host → Container port** | `6379:6379` |
+| **Named volume** | `redis_data` → `/data` |
+
+Redis runs with no authentication by default, which is fine for local development. For production deployments, consider adding a `--requirepass` argument or using a managed Redis service.
+
+The corresponding `.env` values for the containerised Redis service are:
+
+```bash
+REDIS_HOST=localhost
+REDIS_PORT=6379
+```
+
+## Starting and Stopping
+
+<Steps>
+  <Step title="Start services in detached mode">
+    Run the following command from the repository root to start both PostgreSQL
+    and Redis containers in the background:
+
+    ```bash
+    docker compose -f apps/api/docker-compose.yml up -d
+    ```
+
+    Docker will pull the `postgres:16-alpine` and `redis:7-alpine` images on the
+    first run (requires an internet connection). Subsequent starts use the cached
+    images and are near-instant.
+  </Step>
+
+  <Step title="Check container status">
+    Verify that both containers are in the `running` state:
+
+    ```bash
+    docker compose -f apps/api/docker-compose.yml ps
+    ```
+
+    Expected output:
+
+    ```
+    NAME                IMAGE                  STATUS          PORTS
+    shockly_postgres    postgres:16-alpine     Up              0.0.0.0:5432->5432/tcp
+    shockly_redis       redis:7-alpine         Up              0.0.0.0:6379->6379/tcp
+    ```
+  </Step>
+
+  <Step title="View live logs">
+    Tail logs from both services simultaneously (useful for diagnosing startup
+    errors):
+
+    ```bash
+    docker compose -f apps/api/docker-compose.yml logs -f
+    ```
+
+    To view logs for a single service, append the service name:
+
+    ```bash
+    docker compose -f apps/api/docker-compose.yml logs -f postgres
+    docker compose -f apps/api/docker-compose.yml logs -f redis
+    ```
+  </Step>
+
+  <Step title="Stop services (keep data)">
+    Stop both containers without removing their data volumes:
+
+    ```bash
+    docker compose -f apps/api/docker-compose.yml down
+    ```
+
+    Your database contents and Redis data are preserved in the named volumes and
+    will be available next time you run `up -d`.
+  </Step>
+
+  <Step title="Stop services and delete all data">
+    To completely reset the infrastructure — removing containers **and** named
+    volumes — pass the `-v` flag:
+
+    ```bash
+    docker compose -f apps/api/docker-compose.yml down -v
+    ```
+
+    <Warning>
+      The `-v` flag permanently deletes the `postgres_data` and `redis_data`
+      volumes. **All database records, migrations history, and Redis state will
+      be lost.** You will need to re-run `bun run db:migrate` and
+      `bun run db:seed` before the API can serve data again.
+    </Warning>
+  </Step>
+</Steps>
+
+## Volumes
+
+Docker named volumes keep your data alive across container restarts and recreations. Shockly Shop uses two:
+
+| Volume | Mounted at | Purpose |
+|---|---|---|
+| `postgres_data` | `/var/lib/postgresql/data` | All PostgreSQL data files, including the `shockly_shop` database |
+| `redis_data` | `/data` | Redis AOF/RDB persistence files |
+
+Because these are Docker-managed volumes (not bind mounts), they live under Docker's internal storage directory (`/var/lib/docker/volumes/` on Linux) and are not directly visible in your project folder. Use `docker volume inspect postgres_data` to find the exact path on your host if you need to back them up manually.
+
+<Tip>
+  To back up the PostgreSQL database without stopping the container, use
+  `pg_dump` through the running container:
+
+  ```bash
+  docker exec shockly_postgres pg_dump -U shockly shockly_shop > backup.sql
+  ```
+</Tip>
+
+## Manual Setup Alternative
+
+<Accordion title="Installing PostgreSQL and Redis natively (without Docker)">
+  If you prefer not to use Docker, you can install PostgreSQL and Redis directly
+  on your operating system. The steps below are taken from the project's
+  `STARTUP.txt` guide.
+
+  ### PostgreSQL 17 (Windows)
+
+  Install via `winget`:
+
+  ```powershell
+  winget install PostgreSQL.PostgreSQL.17
+  ```
+
+  After installation, create the database and user that match the default
+  connection string:
+
+  ```sql
+  -- Connect as the postgres superuser
+  psql -U postgres
+
+  CREATE DATABASE shockly_shop;
+  CREATE USER shockly WITH PASSWORD 'shockly123';
+  GRANT ALL PRIVILEGES ON DATABASE shockly_shop TO shockly;
+  \q
+  ```
+
+  PostgreSQL listens on the default port `5432`. If you see authentication
+  errors, check `pg_hba.conf` (located at
+  `C:\Program Files\PostgreSQL\17\data\pg_hba.conf`) and ensure the method is
+  `scram-sha-256`. After editing, reload with:
+
+  ```sql
+  SELECT pg_reload_conf();
+  ```
+
+  ### Portable Redis 5+ (Windows, no admin required)
+
+  Download the portable Windows build from the
+  [tporadowski/redis releases page](https://github.com/tporadowski/redis/releases/tag/v5.0.14.1)
+  (`Redis-x64-5.0.14.1.zip`), extract it, and start it on port `6380` to avoid
+  conflicts with any existing Redis service:
+
+  ```powershell
+  C:\Users\<you>\redis\redis-server.exe --port 6380
+  ```
+
+  Keep the terminal open while working, or add the command to Windows startup.
+  Then update your `.env` to use port `6380`:
+
+  ```bash
+  REDIS_HOST=localhost
+  REDIS_PORT=6380
+  ```
+
+  <Note>
+    BullMQ will log a warning that it recommends Redis 6.2+. This is
+    informational only — all queue features work correctly on Redis 5. Upgrade
+    to Redis 6+ when convenient to silence the warning.
+  </Note>
+
+  ### Starting PostgreSQL as a Windows service
+
+  If PostgreSQL was installed via `winget`, it registers as a Windows service.
+  Start it with:
+
+  ```powershell
+  net start postgresql-x64-17
+  ```
+
+  If you see `ECONNREFUSED 5432`, the service is not running — re-run the
+  command above.
+</Accordion>

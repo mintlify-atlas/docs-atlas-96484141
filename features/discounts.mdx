@@ -1,0 +1,185 @@
+---
+title: "Discount Codes: Create and Apply Promotions"
+sidebarTitle: "Discounts"
+description: "Shockly Shop's discount engine supports percentage and fixed-amount codes with optional expiry dates, usage caps, and minimum order thresholds."
+---
+
+Shockly Shop includes a first-class discount code engine backed by a dedicated `discounts` table and a `DiscountsService` in the NestJS API. Admins can create, list, and delete promo codes. Customers apply codes during checkout; the service validates eligibility in real time and returns the exact amount to deduct before the order is submitted.
+
+## Discount Types
+
+The `discount_type` enum in the database schema defines two code variants:
+
+```typescript
+// apps/api/src/db/schema/discounts.ts
+export const discountTypeEnum = pgEnum('discount_type', ['percentage', 'fixed']);
+```
+
+| Type | Behaviour | Example |
+|------|-----------|---------|
+| `percentage` | Reduces the order total by a percentage of the order amount. | `value: 10` → 10% off a 5,000,000 Toman order = 500,000 Toman discount |
+| `fixed` | Reduces the order total by a fixed Toman amount. | `value: 200000` → 200,000 Toman off, regardless of order size |
+
+For `percentage` codes the calculated discount is capped at the full order amount so the final price never goes negative:
+
+```typescript
+const discountAmount =
+  discount.type === 'percentage'
+    ? (dto.orderAmount * +discount.value) / 100
+    : +discount.value;
+
+return {
+  discountAmount: Math.min(discountAmount, dto.orderAmount),
+  finalAmount: Math.max(dto.orderAmount - discountAmount, 0),
+};
+```
+
+## Creating Discount Codes
+
+Creating discount codes is an **admin-only** operation. Send a `POST /api/discounts` request with a JSON body matching `CreateDiscountDto`:
+
+<ParamField body="code" type="string" required>
+  The promo code string customers will enter at checkout (e.g. `SAVE20`). Automatically upper-cased before storage. Must be unique — a `409 Conflict` is returned if the code already exists.
+</ParamField>
+
+<ParamField body="type" type="'percentage' | 'fixed'" required>
+  The discount calculation type. See [Discount Types](#discount-types) above.
+</ParamField>
+
+<ParamField body="value" type="number" required>
+  The magnitude of the discount — either a percentage (0–100) for `percentage` type, or a Toman amount for `fixed` type.
+</ParamField>
+
+<ParamField body="minOrderAmount" type="number">
+  Optional minimum order total (in Toman) required for the code to be valid. Defaults to `0` (no minimum). A `400 Bad Request` is returned if the cart total is below this threshold.
+</ParamField>
+
+<ParamField body="maxUses" type="integer">
+  Optional cap on the total number of times the code can be redeemed. Once `usedCount >= maxUses` the code is rejected with `400 Bad Request`. Omit for unlimited use.
+</ParamField>
+
+<ParamField body="expiresAt" type="ISO 8601 date string">
+  Optional expiry timestamp. After this moment the code is rejected with `400 Bad Request`. Omit for a code that never expires.
+</ParamField>
+
+**Example request body:**
+
+```json
+POST /api/discounts
+Authorization: Bearer <admin-jwt>
+Content-Type: application/json
+
+{
+  "code": "SUMMER25",
+  "type": "percentage",
+  "value": 25,
+  "minOrderAmount": 1000000,
+  "maxUses": 500,
+  "expiresAt": "2025-09-30T23:59:59.000Z"
+}
+```
+
+**Success response:**
+
+```json
+{
+  "data": {
+    "discount": {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "code": "SUMMER25",
+      "type": "percentage",
+      "value": "25.00",
+      "minOrderAmount": "1000000.00",
+      "maxUses": 500,
+      "usedCount": 0,
+      "isActive": true,
+      "expiresAt": "2025-09-30T23:59:59.000Z",
+      "createdAt": "2025-06-01T10:00:00.000Z"
+    }
+  }
+}
+```
+
+## Validating a Code
+
+Customers validate their code before checkout by calling:
+
+```http
+POST /api/discounts/validate
+Content-Type: application/json
+
+{
+  "code": "SUMMER25",
+  "orderAmount": 3000000
+}
+```
+
+The service checks **four conditions** and rejects the code if any fail:
+
+| Condition | Error returned on failure |
+|-----------|--------------------------|
+| Code exists and `isActive === true` | `404 Not Found` — "کد تخفیف معتبر نیست" |
+| `expiresAt` is null or in the future | `400 Bad Request` — "کد تخفیف منقضی شده" |
+| `maxUses` is null, or `usedCount < maxUses` | `400 Bad Request` — "ظرفیت کد تخفیف تمام شده" |
+| `orderAmount >= minOrderAmount` | `400 Bad Request` — "حداقل مبلغ سفارش X است" |
+
+On success the response includes the calculated discount:
+
+```json
+{
+  "data": {
+    "valid": true,
+    "discountAmount": 750000,
+    "finalAmount": 2250000,
+    "discount": { "code": "SUMMER25", "type": "percentage", "value": "25.00", ... }
+  }
+}
+```
+
+## Applying at Checkout
+
+Discount codes are applied **before** order creation to ensure the correct total is stored:
+
+1. Customer enters a code in the checkout UI.
+2. Frontend calls `POST /api/discounts/validate` with the code and current cart total.
+3. On success, the UI shows the `discountAmount` deduction and the `finalAmount` as the new total.
+4. Customer submits the order — frontend uses `finalAmount` as the order total in `POST /api/orders`.
+5. After the order is successfully created, the API calls `applyDiscount(code)` which atomically increments `usedCount` on the discount row.
+
+```typescript
+// discounts.service.ts — atomic usage increment
+async applyDiscount(code: string) {
+  await this.db
+    .update(discounts)
+    .set({ usedCount: sql`${discounts.usedCount} + 1` })
+    .where(eq(discounts.code, code.toUpperCase()));
+}
+```
+
+## Seeded Example
+
+The project ships with a ready-to-use promo code loaded by the database seed script:
+
+<Tip>
+  **Code:** `WELCOME10`  
+  **Type:** `percentage`  
+  **Value:** 10% off  
+  **Minimum order:** none  
+  **Expiry:** none  
+
+  Use this code immediately after seeding the database — enter `WELCOME10` in the discount code field during checkout to receive a 10% discount on any order.
+</Tip>
+
+## Admin Operations
+
+All discount management endpoints require an admin JWT (`role: admin`).
+
+| Operation | Endpoint | Description |
+|-----------|----------|-------------|
+| List all codes | `GET /api/discounts` | Returns `{ discounts: Discount[] }` — all codes including used/expired ones. |
+| Create a code | `POST /api/discounts` | Creates a new code. See [Creating Discount Codes](#creating-discount-codes). |
+| Delete a code | `DELETE /api/discounts/:id` | Permanently removes the discount row. Returns `404` if the ID does not exist. |
+
+<Note>
+  There is currently no `PATCH /api/discounts/:id` endpoint for editing existing codes. To update a code (e.g. extend its expiry or increase `maxUses`), delete the old code and create a new one with the updated values.
+</Note>

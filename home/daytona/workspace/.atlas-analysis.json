@@ -1,0 +1,130 @@
+{
+  "projectType": "saas",
+  "projectName": "Shockly Shop",
+  "projectDescription": "A full-stack e-commerce platform with a NestJS/Fastify REST API backend (PostgreSQL + Drizzle ORM + BullMQ) and a Next.js storefront + admin dashboard frontend.",
+  "theme": "luma",
+  "primaryColor": "#6366F1",
+  "lightColor": "#818CF8",
+  "darkColor": "#4338CA",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "environment-setup"
+            ]
+          },
+          {
+            "group": "Architecture",
+            "pages": [
+              "architecture/overview",
+              "architecture/database-schema",
+              "architecture/background-jobs"
+            ]
+          },
+          {
+            "group": "Features",
+            "pages": [
+              "features/storefront",
+              "features/admin-dashboard",
+              "features/cart-checkout",
+              "features/payments",
+              "features/discounts"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/configuration",
+              "deployment/docker",
+              "deployment/database-migrations"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "api-reference/overview",
+              "api-reference/authentication"
+            ]
+          },
+          {
+            "group": "Endpoints",
+            "pages": [
+              "api-reference/auth",
+              "api-reference/users",
+              "api-reference/products",
+              "api-reference/categories",
+              "api-reference/cart",
+              "api-reference/orders",
+              "api-reference/payments",
+              "api-reference/discounts"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "JWT authentication with access/refresh token rotation",
+    "Role-based access control (customer / admin)",
+    "Product catalog with categories, subcategories, and image uploads",
+    "Shopping cart with per-user persistence",
+    "Order lifecycle management (pending → paid → fulfilled → shipped)",
+    "Pluggable payment provider interface with mock implementation",
+    "Discount code engine (percentage or fixed, with expiry and usage limits)",
+    "BullMQ background job queues for order processing and notifications",
+    "Next.js storefront with infinite-scroll product listing",
+    "Admin dashboard for products, orders, stock, and users",
+    "Global response envelope (status + data) via NestJS interceptor",
+    "Rate limiting (100 req / 60 s) via @nestjs/throttler",
+    "Multipart file uploads for product images served as static assets"
+  ],
+  "publicApiSurface": [
+    "POST /api/auth/signup",
+    "POST /api/auth/login",
+    "POST /api/auth/token",
+    "POST /api/auth/logout",
+    "GET /api/users",
+    "GET /api/users/me",
+    "GET /api/users/:id",
+    "PATCH /api/users/me",
+    "GET /api/products",
+    "GET /api/products/:id",
+    "POST /api/products (admin, multipart)",
+    "PATCH /api/products/:id (admin, multipart)",
+    "DELETE /api/products/:id (admin)",
+    "GET /api/categories",
+    "GET /api/categories/:id",
+    "POST /api/categories (admin)",
+    "DELETE /api/categories/:id (admin)",
+    "GET /api/subcategories",
+    "GET /api/subcategories/:id",
+    "POST /api/subcategories (admin)",
+    "DELETE /api/subcategories/:id (admin)",
+    "GET /api/cart",
+    "POST /api/cart",
+    "PATCH /api/cart/:itemId",
+    "DELETE /api/cart/:itemId",
+    "DELETE /api/cart",
+    "GET /api/orders (admin)",
+    "GET /api/orders/:id",
+    "POST /api/orders",
+    "PATCH /api/orders/:id (admin)",
+    "POST /api/payments/initiate",
+    "POST /api/payments/verify",
+    "GET /api/discounts (admin)",
+    "POST /api/discounts (admin)",
+    "POST /api/discounts/validate",
+    "DELETE /api/discounts/:id (admin)"
+  ]
+}

@@ -1,0 +1,196 @@
+---
+title: "Shockly Shop Database Schema and Data Model"
+sidebarTitle: "Database Schema"
+description: "Complete reference for the PostgreSQL 16 tables, column types, constraints, and Drizzle ORM relations that make up the Shockly Shop data model."
+---
+
+Shockly Shop persists all data in **PostgreSQL 16** using **Drizzle ORM** for schema definition, migrations, and type-safe query building. Schema files live under `apps/api/src/db/schema/` — one file per domain entity — and are re-exported together for use across the application. Every table uses UUID primary keys generated server-side with `gen_random_uuid()`, and all timestamps default to `NOW()`.
+
+## Tables
+
+### `users`
+
+Stores customer and admin accounts. The `role` column is a PostgreSQL enum that controls access to protected routes. The `refreshToken` column holds the hashed token used by the JWT refresh rotation strategy.
+
+| Column | DB Type | Constraints | Default |
+|---|---|---|---|
+| `id` | `uuid` | PRIMARY KEY | `gen_random_uuid()` |
+| `firstname` | `varchar(100)` | NOT NULL | — |
+| `lastname` | `varchar(100)` | NOT NULL | — |
+| `username` | `varchar(100)` | NOT NULL, UNIQUE | — |
+| `password` | `text` | NOT NULL | — |
+| `phone_number` | `varchar(20)` | nullable | — |
+| `address` | `text` | nullable | — |
+| `role` | `role` enum | NOT NULL | `'customer'` |
+| `refresh_token` | `text` | nullable | — |
+| `created_at` | `timestamp` | NOT NULL | `NOW()` |
+| `updated_at` | `timestamp` | NOT NULL | `NOW()` |
+
+**Enum — `role`:** `customer` \| `admin`
+
+---
+
+### `categories`
+
+Top-level product groupings. Each category has a URL-friendly `slugname` used in storefront navigation and filtering.
+
+| Column | DB Type | Constraints | Default |
+|---|---|---|---|
+| `id` | `uuid` | PRIMARY KEY | `gen_random_uuid()` |
+| `name` | `varchar(100)` | NOT NULL, UNIQUE | — |
+| `slugname` | `varchar(120)` | NOT NULL, UNIQUE | — |
+| `icon` | `varchar(255)` | nullable | — |
+| `created_at` | `timestamp` | NOT NULL | `NOW()` |
+| `updated_at` | `timestamp` | NOT NULL | `NOW()` |
+
+---
+
+### `subcategories`
+
+Second-level categories nested beneath a parent `categories` row. Deleting a category cascades to all its subcategories.
+
+| Column | DB Type | Constraints | Default |
+|---|---|---|---|
+| `id` | `uuid` | PRIMARY KEY | `gen_random_uuid()` |
+| `name` | `varchar(100)` | NOT NULL | — |
+| `slugname` | `varchar(120)` | NOT NULL, UNIQUE | — |
+| `category_id` | `uuid` | NOT NULL, FK → `categories.id` (CASCADE) | — |
+| `created_at` | `timestamp` | NOT NULL | `NOW()` |
+| `updated_at` | `timestamp` | NOT NULL | `NOW()` |
+
+---
+
+### `products`
+
+The central catalogue table. Product images are stored as a JSONB array of URL strings; the `rating` column stores a denormalised `{rate, count}` object updated asynchronously to avoid expensive aggregate queries on hot paths.
+
+| Column | DB Type | Constraints | Default |
+|---|---|---|---|
+| `id` | `uuid` | PRIMARY KEY | `gen_random_uuid()` |
+| `name` | `varchar(255)` | NOT NULL, UNIQUE | — |
+| `slugname` | `varchar(280)` | NOT NULL, UNIQUE | — |
+| `brand` | `varchar(100)` | NOT NULL | — |
+| `description` | `text` | nullable | — |
+| `price` | `numeric(12,2)` | NOT NULL | — |
+| `quantity` | `integer` | NOT NULL | `0` |
+| `thumbnail` | `varchar(255)` | nullable | — |
+| `images` | `jsonb` (`string[]`) | — | `[]` |
+| `rating` | `jsonb` (`{rate: number, count: number}`) | — | `{rate: 0, count: 0}` |
+| `category_id` | `uuid` | NOT NULL, FK → `categories.id` | — |
+| `subcategory_id` | `uuid` | nullable, FK → `subcategories.id` | — |
+| `created_at` | `timestamp` | NOT NULL | `NOW()` |
+| `updated_at` | `timestamp` | NOT NULL | `NOW()` |
+
+---
+
+### `orders`
+
+Records a placed order. The `products` column is a JSONB snapshot of the items at time of purchase — this intentionally de-normalises the data so that subsequent product edits do not alter historical order records. The `status` enum drives the order lifecycle state machine.
+
+| Column | DB Type | Constraints | Default |
+|---|---|---|---|
+| `id` | `uuid` | PRIMARY KEY | `gen_random_uuid()` |
+| `user_id` | `uuid` | NOT NULL, FK → `users.id` | — |
+| `products` | `jsonb` (`Array<{product: uuid, count: number}>`) | NOT NULL | — |
+| `total_price` | `numeric(12,2)` | NOT NULL | `'0'` |
+| `delivery_date` | `timestamp` | nullable | — |
+| `delivery_status` | `boolean` | NOT NULL | `false` |
+| `status` | `order_status` enum | NOT NULL | `'pending'` |
+| `payment_ref` | `uuid` | nullable | — |
+| `created_at` | `timestamp` | NOT NULL | `NOW()` |
+| `updated_at` | `timestamp` | NOT NULL | `NOW()` |
+
+**Enum — `order_status`:** `pending` \| `paid` \| `fulfilled` \| `shipped` \| `cancelled`
+
+---
+
+### `cart_items`
+
+Represents the live shopping cart as individual line items. Each row links one user to one product with a quantity. Both foreign keys use `ON DELETE CASCADE` so that removing a user or product automatically cleans up orphaned cart rows.
+
+| Column | DB Type | Constraints | Default |
+|---|---|---|---|
+| `id` | `uuid` | PRIMARY KEY | `gen_random_uuid()` |
+| `user_id` | `uuid` | NOT NULL, FK → `users.id` (CASCADE) | — |
+| `product_id` | `uuid` | NOT NULL, FK → `products.id` (CASCADE) | — |
+| `quantity` | `integer` | NOT NULL | `1` |
+| `created_at` | `timestamp` | NOT NULL | `NOW()` |
+| `updated_at` | `timestamp` | NOT NULL | `NOW()` |
+
+---
+
+### `payments`
+
+Tracks a payment attempt linked to an order. The `provider` column records which payment gateway processed the charge (defaults to `'mock'` for local development). `provider_ref` stores the external transaction identifier returned by the gateway.
+
+| Column | DB Type | Constraints | Default |
+|---|---|---|---|
+| `id` | `uuid` | PRIMARY KEY | `gen_random_uuid()` |
+| `order_id` | `uuid` | NOT NULL, FK → `orders.id` | — |
+| `user_id` | `uuid` | NOT NULL, FK → `users.id` | — |
+| `amount` | `numeric(12,2)` | NOT NULL | — |
+| `status` | `payment_status` enum | NOT NULL | `'pending'` |
+| `provider` | `varchar(50)` | NOT NULL | `'mock'` |
+| `provider_ref` | `varchar(255)` | nullable | — |
+| `created_at` | `timestamp` | NOT NULL | `NOW()` |
+| `updated_at` | `timestamp` | NOT NULL | `NOW()` |
+
+**Enum — `payment_status`:** `pending` \| `success` \| `failed` \| `refunded`
+
+---
+
+### `discounts`
+
+Stores promotional discount codes that customers can apply at checkout. `min_order_amount` enforces a minimum basket value before the code becomes valid. `max_uses` can be `NULL` for unlimited codes.
+
+| Column | DB Type | Constraints | Default |
+|---|---|---|---|
+| `id` | `uuid` | PRIMARY KEY | `gen_random_uuid()` |
+| `code` | `varchar(50)` | NOT NULL, UNIQUE | — |
+| `type` | `discount_type` enum | NOT NULL | — |
+| `value` | `numeric(10,2)` | NOT NULL | — |
+| `min_order_amount` | `numeric(12,2)` | nullable | `'0'` |
+| `max_uses` | `integer` | nullable | — |
+| `used_count` | `integer` | NOT NULL | `0` |
+| `is_active` | `boolean` | NOT NULL | `true` |
+| `expires_at` | `timestamp` | nullable | — |
+| `created_at` | `timestamp` | NOT NULL | `NOW()` |
+| `updated_at` | `timestamp` | NOT NULL | `NOW()` |
+
+**Enum — `discount_type`:** `percentage` \| `fixed`
+
+---
+
+## Entity Relationships
+
+The diagram below summarises the foreign-key relationships across all tables:
+
+```text
+users ──────────────────────────────────────────────────────┐
+  │                                                          │
+  ├──< orders (user_id)                                      │
+  │       │                                                  │
+  │       └──< payments (order_id) >── users (user_id)       │
+  │                                                          │
+  ├──< cart_items (user_id) >── products (product_id)        │
+  │                                                          │
+  └──< payments (user_id) ──────────────────────────────────┘
+
+categories ──< subcategories (category_id)
+categories ──< products (category_id)
+subcategories ──< products (subcategory_id)  [optional]
+```
+
+Drizzle relations defined in `relations.ts` mirror these FK constraints and enable type-safe eager-loading with `db.query.*` relational syntax:
+
+- `users` → many `orders`, many `cartItems`, many `payments`
+- `categories` → many `subcategories`, many `products`
+- `subcategories` → one `category`, many `products`
+- `products` → one `category`, one optional `subcategory`, many `cartItems`
+- `orders` → one `user`, many `payments`
+- `cartItems` → one `user`, one `product`
+- `payments` → one `order`, one `user`
+
+<Note>
+  Run `bun run db:studio` from the repository root to open **Drizzle Studio** at `http://localhost:4983` — a visual browser for all tables and rows backed by your live database connection. Use `bun run db:migrate` to apply pending migrations and `bun run db:seed` to populate the database with sample data.
+</Note>

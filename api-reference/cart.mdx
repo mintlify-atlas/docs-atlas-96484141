@@ -1,0 +1,277 @@
+---
+title: "Cart API: Add, Update, and Remove Cart Items"
+sidebarTitle: "Cart"
+description: "Manage the authenticated user's shopping cart — add products, update quantities, remove items, or clear the entire cart."
+---
+
+Every cart endpoint requires a valid JWT attached as `Authorization: Bearer <accessToken>`. The cart is scoped strictly to the authenticated user; one user cannot read or modify another user's cart. The service automatically increments an existing item's quantity when the same product is added a second time, and removes the item entirely when its quantity is set to `0`.
+
+<Note>
+  All cart endpoints return **401 Unauthorized** if the `Authorization` header is missing or contains an invalid / expired token. Obtain a token from `POST /api/auth/login` before calling these routes.
+</Note>
+
+---
+
+## Get cart
+
+<ParamField header="Authorization" type="string" required>
+  `Bearer <accessToken>`
+</ParamField>
+
+```bash
+GET /api/cart
+```
+
+Returns the current user's full cart including all items and a computed `totalPrice` derived from each item's live product price multiplied by its quantity.
+
+**Response `200`**
+
+```json
+{
+  "data": {
+    "items": [
+      {
+        "id": "a1b2c3d4-0000-0000-0000-000000000001",
+        "user": "f8e7d6c5-0000-0000-0000-000000000099",
+        "product": {
+          "id": "d4c3b2a1-0000-0000-0000-000000000010",
+          "name": "Samsung Galaxy S24",
+          "price": "25000000.00",
+          "thumbnail": "/images/products/thumbnails/galaxy-s24.jpg"
+        },
+        "quantity": 2,
+        "createdAt": "2024-06-01T10:00:00.000Z",
+        "updatedAt": "2024-06-01T10:00:00.000Z"
+      }
+    ],
+    "totalPrice": 50000000
+  }
+}
+```
+
+**curl example**
+
+```bash
+curl -X GET https://api.shockly.shop/api/cart \
+  -H "Authorization: Bearer <accessToken>"
+```
+
+---
+
+## Add item to cart
+
+```bash
+POST /api/cart
+```
+
+Adds a product to the cart. If the product already exists in the cart, its `quantity` is **incremented** by the supplied value rather than creating a duplicate entry.
+
+<ParamField header="Authorization" type="string" required>
+  `Bearer <accessToken>`
+</ParamField>
+
+<ParamField body="productId" type="string (UUID)" required>
+  The UUID of the product to add.
+</ParamField>
+
+<ParamField body="quantity" type="number" initialValue="1">
+  Number of units to add. Must be a positive integer (`min: 1`). Defaults to `1` if omitted.
+</ParamField>
+
+**Request body**
+
+```json
+{
+  "productId": "d4c3b2a1-0000-0000-0000-000000000010",
+  "quantity": 1
+}
+```
+
+**Response `201`**
+
+```json
+{
+  "data": {
+    "item": {
+      "id": "a1b2c3d4-0000-0000-0000-000000000001",
+      "user": "f8e7d6c5-0000-0000-0000-000000000099",
+      "product": "d4c3b2a1-0000-0000-0000-000000000010",
+      "quantity": 2,
+      "createdAt": "2024-06-01T10:00:00.000Z",
+      "updatedAt": "2024-06-01T10:05:00.000Z"
+    }
+  }
+}
+```
+
+**curl example**
+
+```bash
+curl -X POST https://api.shockly.shop/api/cart \
+  -H "Authorization: Bearer <accessToken>" \
+  -H "Content-Type: application/json" \
+  -d '{"productId": "d4c3b2a1-0000-0000-0000-000000000010", "quantity": 1}'
+```
+
+---
+
+## Update cart item quantity
+
+```bash
+PATCH /api/cart/:itemId
+```
+
+Sets the quantity of an existing cart item to the supplied value. If `quantity` is `0`, the item is removed automatically — equivalent to calling `DELETE /api/cart/:itemId`.
+
+<ParamField path="itemId" type="string (UUID)" required>
+  The UUID of the cart item row to update.
+</ParamField>
+
+<ParamField body="quantity" type="number" required>
+  New quantity. Must be a non-negative integer (`min: 0`). Passing `0` deletes the item.
+</ParamField>
+
+**Request body**
+
+```json
+{
+  "quantity": 3
+}
+```
+
+**Response `200`**
+
+```json
+{
+  "data": {
+    "item": {
+      "id": "a1b2c3d4-0000-0000-0000-000000000001",
+      "user": "f8e7d6c5-0000-0000-0000-000000000099",
+      "product": "d4c3b2a1-0000-0000-0000-000000000010",
+      "quantity": 3,
+      "createdAt": "2024-06-01T10:00:00.000Z",
+      "updatedAt": "2024-06-01T10:10:00.000Z"
+    }
+  }
+}
+```
+
+**curl example**
+
+```bash
+curl -X PATCH https://api.shockly.shop/api/cart/a1b2c3d4-0000-0000-0000-000000000001 \
+  -H "Authorization: Bearer <accessToken>" \
+  -H "Content-Type: application/json" \
+  -d '{"quantity": 3}'
+```
+
+---
+
+## Remove a cart item
+
+```bash
+DELETE /api/cart/:itemId
+```
+
+Permanently removes a single item from the cart. Returns 404 if the item does not belong to the authenticated user or does not exist.
+
+<ParamField path="itemId" type="string (UUID)" required>
+  The UUID of the cart item to delete.
+</ParamField>
+
+**Response `200`**
+
+```json
+{
+  "data": {
+    "item": {
+      "id": "a1b2c3d4-0000-0000-0000-000000000001",
+      "user": "f8e7d6c5-0000-0000-0000-000000000099",
+      "product": "d4c3b2a1-0000-0000-0000-000000000010",
+      "quantity": 3,
+      "createdAt": "2024-06-01T10:00:00.000Z",
+      "updatedAt": "2024-06-01T10:10:00.000Z"
+    }
+  }
+}
+```
+
+**curl example**
+
+```bash
+curl -X DELETE https://api.shockly.shop/api/cart/a1b2c3d4-0000-0000-0000-000000000001 \
+  -H "Authorization: Bearer <accessToken>"
+```
+
+---
+
+## Clear entire cart
+
+```bash
+DELETE /api/cart
+```
+
+Removes **all** items from the authenticated user's cart in a single operation. Useful when processing a checkout or when the user explicitly empties their cart.
+
+**Response `200`**
+
+```json
+{
+  "data": {
+    "message": "سبد خرید پاک شد"
+  }
+}
+```
+
+**curl example**
+
+```bash
+curl -X DELETE https://api.shockly.shop/api/cart \
+  -H "Authorization: Bearer <accessToken>"
+```
+
+---
+
+## CartItem schema
+
+<ResponseField name="id" type="string (UUID)">
+  Unique identifier of the cart item row.
+</ResponseField>
+
+<ResponseField name="user" type="string (UUID)">
+  UUID of the owning user. Matches the authenticated requester's ID.
+</ResponseField>
+
+<ResponseField name="product" type="string (UUID) | object">
+  Product UUID stored in the database. When the cart is fetched via `GET /api/cart`, this field is expanded into an embedded product object (see below).
+</ResponseField>
+
+<ResponseField name="quantity" type="number">
+  Current number of units in the cart for this product. Always `≥ 1` for persisted items.
+</ResponseField>
+
+<ResponseField name="createdAt" type="string (ISO 8601)">
+  Timestamp when the item was first added to the cart.
+</ResponseField>
+
+<ResponseField name="updatedAt" type="string (ISO 8601)">
+  Timestamp of the most recent quantity update.
+</ResponseField>
+
+### Embedded product object (GET /api/cart only)
+
+<ResponseField name="product.id" type="string (UUID)">
+  Product UUID.
+</ResponseField>
+
+<ResponseField name="product.name" type="string">
+  Display name of the product.
+</ResponseField>
+
+<ResponseField name="product.price" type="string (numeric)">
+  Unit price used to compute `totalPrice`.
+</ResponseField>
+
+<ResponseField name="product.thumbnail" type="string | null">
+  Path to the product thumbnail image, or `null` if none has been uploaded.
+</ResponseField>

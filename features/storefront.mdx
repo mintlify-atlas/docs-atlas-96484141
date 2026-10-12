@@ -1,0 +1,114 @@
+---
+title: "Storefront: Product Browsing and Customer Experience"
+sidebarTitle: "Storefront"
+description: "Explore the Next.js storefront in apps/web — product browsing, category filtering, sorting, infinite scroll, and slug-based product detail pages."
+---
+
+The Shockly Shop storefront lives inside `apps/web` and is built with Next.js App Router. It provides every customer-facing page: a rich home page with hero slider and category grid, a paginated product listing with live client-side filtering, slug-based product detail pages, a shopping cart, and a multi-step checkout flow. All data fetching uses React Query against the NestJS API, and cart state is managed with Redux Toolkit and persisted across sessions via `redux-persist`.
+
+## Routes
+
+The storefront is grouped under the `(storefront)` route group, keeping the layout (header, footer, navigation) shared across all customer-facing pages.
+
+| Path | Description |
+|------|-------------|
+| `/` | Home page — hero `MainSlider`, promo image tiles, trust/guarantee icon row, `ProductSlider` carousels for offers / newest / top phones, `HomeCategories` grid, and a promotional banner. |
+| `/products` | All-products listing — client-side filtering by category and brand, price range slider, in-stock toggle, sort by newest / cheapest / priciest, and load-more pagination. |
+| `/products/[slug]` | Product detail — fetched by slug, shows name, brand, price, stock count, image gallery, rating badges, and an accordion with description / specs / pros / cons. |
+| `/cart` | Shopping cart — line items with quantity controls, per-item subtotals, grand total, and a link to `/checkout`. |
+| `/checkout` | Checkout — displays user profile details (read-only), a delivery date picker, then calls `POST /api/orders` + `POST /api/payments/initiate` on submit. |
+| `/checkout/result` | Post-payment result — reads `?success=` and `?ref=` query params, calls `POST /api/payments/verify`, shows success or failure UI, then clears the Redux cart and redirects home. |
+| `/category/[id]` | Category product listing — same product grid scoped to a single category UUID. |
+| `/authentication` | Login / Register — JWT-based authentication; unauthenticated users trying to reach `/checkout` are redirected here with `?checkout=true`. |
+
+## Product Listing
+
+The `/products` page loads the full catalogue from the API (`getAllProducts`) and applies all filtering and sorting entirely on the client so results are instant.
+
+**Load-more pagination** is implemented with a `visibleCount` state variable (default page size: 12). Clicking "Show more products" increments `visibleCount` by 12, slicing from the already-fetched array — no additional network request is needed. This mimics infinite scroll behaviour while keeping the implementation simple.
+
+```typescript
+const PAGE_SIZE = 12;
+
+// Incrementally reveal more products on button click
+const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+const visible = filtered.slice(0, visibleCount);
+
+// Load-more button
+{visibleCount < filtered.length && (
+  <Button onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}>
+    Show more products
+  </Button>
+)}
+```
+
+**Filtering** supports four independent dimensions that can be combined freely:
+
+| Filter | Mechanism |
+|--------|-----------|
+| Category | Checkbox list — compares `product.category.id` against selected IDs |
+| Brand | Checkbox list — derived dynamically from the loaded product set |
+| Price range | Dual-handle `Slider` component — bounds auto-calculated from min/max prices |
+| In-stock only | Single checkbox — filters out products where `quantity === 0` |
+
+**Sorting** is controlled by a `<Select>` dropdown with three options: `newest` (sorts by `createdAt` descending), `cheapest` (price ascending), and `priciest` (price descending). Changing the sort or any filter resets `visibleCount` back to `PAGE_SIZE`.
+
+The mobile filter panel uses a `<Sheet>` (slide-over drawer) triggered by a toolbar button; an active filter count badge shows how many filters are applied.
+
+## Product Detail
+
+Individual product pages are reached at `/products/[slug]` where `slug` is the product's `slugname` field. The page calls `getSingleProduct(slug)` via React Query and renders:
+
+- **Name** and a "New" badge
+- **Brand** (displayed below the name as muted text)
+- **Stock count** — "X عدد در انبار" (X items in stock)
+- **Price** — formatted with `Intl.NumberFormat` in the user's locale
+- **Image gallery** — the `ImagePreview` component cycles through the `images[]` array
+- **Thumbnail** — used as the gallery's default/preview image
+- **Rating** — `rating.rate` and `rating.count` surfaced via icon badges
+- **Add to cart / quantity control** — dispatches `increment` to the Redux cart slice; once an item is in the cart the button switches to an inline `PriceCounter`
+- **Description / specs / pros / cons** — rendered as a collapsible `Accordion`
+
+A breadcrumb trail links back to `/products`.
+
+## Search and Filtering
+
+The products page assembles its filter UI from three reusable components:
+
+| Component | Role |
+|-----------|------|
+| `FilterPanel` (inline) | Desktop sidebar — category checkboxes, brand checkboxes, price range slider, in-stock toggle |
+| `FilterCategories` | Header cell inside the products data-table on the dashboard (category quick-filter) |
+| `DropDownSort` | Sortable column header used across the dashboard data-tables; wraps sort direction state into a URL query param |
+
+On the public storefront the entire filter state is a single `FiltersState` object kept in `useState`, so selecting any combination of filters recalculates the `filtered` memo-ized array synchronously on every render.
+
+## State Management
+
+Shockly Shop uses a layered state strategy:
+
+<CardGroup cols={2}>
+  <Card title="Redux Toolkit + cartSlice" icon="layer-group">
+    Cart state (`cartItems[]`) lives in the `cartSlice` reducer. Actions — `increment`, `decrement`, `clear` — update the slice synchronously. Selectors (`cartItemSelector`, `totalPriceSelector`, `productQtySelector`) are memoised with `createSelector`.
+  </Card>
+  <Card title="redux-persist + localStorage" icon="floppy-disk">
+    The root reducer is wrapped with `persistReducer` (key `'root'`, storage: `localStorage`). Cart contents survive full page refreshes and browser restarts without any re-fetch.
+  </Card>
+  <Card title="React Query" icon="arrows-rotate">
+    All server data — products, categories, orders — is fetched and cached with `@tanstack/react-query`. Query keys are arrays like `["getProduct", slug]` so the cache is granular and stale-while-revalidate by default.
+  </Card>
+  <Card title="URL query params" icon="link">
+    The dashboard's filter and pagination state (page, category, sort, deliveryStatus) is stored in URL search params so dashboard views are bookmarkable and shareable.
+  </Card>
+</CardGroup>
+
+```typescript
+// cartSlice.ts — persisted reducer setup
+import storage from 'redux-persist/lib/storage';
+import { persistReducer } from 'redux-persist';
+import { combineReducers } from '@reduxjs/toolkit';
+
+const persistConfig = { key: 'root', version: 1, storage };
+const reducers = combineReducers({ cartSlice: cartSlice.reducer });
+export const persistedReducer = persistReducer(persistConfig, reducers);
+```

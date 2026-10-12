@@ -1,0 +1,181 @@
+---
+title: "Payment Processing and Provider Integration"
+sidebarTitle: "Payments"
+description: "Shockly Shop uses a pluggable PaymentProvider interface so any gateway can be swapped in. Learn about initiation, verification, and the built-in mock provider."
+---
+
+Shockly Shop's payment layer is built around a clean provider abstraction. The `PaymentsService` in `apps/api` does not call any payment gateway directly — instead it delegates to whatever class implements the `PaymentProvider` interface. Swapping from the development mock provider to Zarinpal, Stripe, or any other real gateway requires only implementing two methods and rebinding one NestJS dependency injection token.
+
+## Payment Provider Interface
+
+The interface is defined in `apps/api/src/modules/payments/providers/payment-provider.interface.ts` and consists of two methods plus two result types:
+
+```typescript
+export interface InitiatePaymentResult {
+  redirectUrl: string;   // URL the customer should be redirected to
+  providerRef: string;   // Provider's unique transaction reference
+}
+
+export interface VerifyPaymentResult {
+  success: boolean;      // true = payment confirmed, false = rejected/failed
+  providerRef: string;   // Echo of the reference for audit logging
+  message: string;       // Human-readable status message
+}
+
+export interface PaymentProvider {
+  initiatePayment(
+    amount: number,
+    orderId: string,
+    callbackUrl: string
+  ): Promise<InitiatePaymentResult>;
+
+  verifyPayment(
+    providerRef: string,
+    amount: number
+  ): Promise<VerifyPaymentResult>;
+}
+
+export const PAYMENT_PROVIDER = Symbol('PAYMENT_PROVIDER');
+```
+
+The `PAYMENT_PROVIDER` symbol is the NestJS injection token. `PaymentsService` receives the active provider via constructor injection:
+
+```typescript
+constructor(
+  @Inject(DB) private db: DBType,
+  @Inject(PAYMENT_PROVIDER) private paymentProvider: PaymentProvider,
+) {}
+```
+
+## Mock Provider
+
+The `MockPaymentProvider` (in `providers/mock.provider.ts`) is the default provider. It is designed for local development and automated testing — no external HTTP calls are made.
+
+```typescript
+@Injectable()
+export class MockPaymentProvider implements PaymentProvider {
+  async initiatePayment(
+    amount: number,
+    orderId: string,
+    callbackUrl: string,
+  ): Promise<InitiatePaymentResult> {
+    const providerRef = randomUUID();
+    // Build a callback URL that carries success=true and the ref,
+    // so the frontend's /checkout/result page can verify immediately.
+    const redirectUrl = `${callbackUrl}?success=true&ref=${providerRef}&orderId=${orderId}`;
+    return { redirectUrl, providerRef };
+  }
+
+  async verifyPayment(
+    providerRef: string,
+    amount: number,
+  ): Promise<VerifyPaymentResult> {
+    // Always returns success — no real gateway call.
+    return { success: true, providerRef, message: 'پرداخت با موفقیت انجام شد' };
+  }
+}
+```
+
+Key behaviours of the mock provider:
+
+- `initiatePayment` generates a random UUID as the `providerRef` and constructs the `redirectUrl` by appending `?success=true&ref=<uuid>` to the `callbackUrl`. No external redirect actually occurs — the frontend can parse the URL immediately.
+- `verifyPayment` always returns `{ success: true }` regardless of the `providerRef` value or `amount`. Every order placed in development is automatically marked as paid.
+
+<Note>
+  The mock provider always succeeds. **You must replace it with a real provider before going to production.** Leaving the mock in place means all orders are marked as paid without any actual money changing hands.
+</Note>
+
+## Implementing a Real Provider
+
+To integrate a live payment gateway (e.g. Zarinpal, Stripe, IDPay):
+
+1. **Create a new provider class** that implements `PaymentProvider`:
+
+```typescript
+import { Injectable } from '@nestjs/common';
+import type {
+  PaymentProvider,
+  InitiatePaymentResult,
+  VerifyPaymentResult,
+} from './payment-provider.interface';
+
+@Injectable()
+export class ZarinpalProvider implements PaymentProvider {
+  async initiatePayment(
+    amount: number,
+    orderId: string,
+    callbackUrl: string,
+  ): Promise<InitiatePaymentResult> {
+    // Call the Zarinpal payment request API here
+    // Return { redirectUrl, providerRef }
+  }
+
+  async verifyPayment(
+    providerRef: string,
+    amount: number,
+  ): Promise<VerifyPaymentResult> {
+    // Call the Zarinpal payment verification API here
+    // Return { success, providerRef, message }
+  }
+}
+```
+
+2. **Bind the new class** to `PAYMENT_PROVIDER` in `payments.module.ts`:
+
+```typescript
+{
+  provide: PAYMENT_PROVIDER,
+  useClass: ZarinpalProvider,   // replaces MockPaymentProvider
+}
+```
+
+No changes to `PaymentsService` are needed — the interface contract ensures full compatibility.
+
+## Payment Flow
+
+<Steps>
+  <Step title="Initiate — POST /api/payments/initiate">
+    The frontend posts `{ orderId, callbackUrl }` after creating an order. `PaymentsService` looks up the order total, calls `paymentProvider.initiatePayment(amount, orderId, callbackUrl)`, persists a `payments` row with `status: "pending"`, and returns:
+
+    ```json
+    {
+      "data": {
+        "redirectUrl": "https://gateway.example.com/pay?token=abc123",
+        "providerRef": "550e8400-e29b-41d4-a716-446655440000"
+      }
+    }
+    ```
+  </Step>
+
+  <Step title="Redirect the customer">
+    The frontend navigates the user to `redirectUrl`. For real gateways this is an external payment page. For the mock provider it is the local `/checkout/result?success=true&ref=<uuid>` callback URL, so no browser leave occurs in development.
+  </Step>
+
+  <Step title="Verify — POST /api/payments/verify">
+    When the customer returns from the gateway, the `/checkout/result` page calls `POST /api/payments/verify` with `{ providerRef, orderId }`. `PaymentsService`:
+
+    1. Looks up the order by `orderId`.
+    2. Calls `paymentProvider.verifyPayment(providerRef, orderTotal)`.
+    3. Updates the `payments` row to `status: "success"` or `"failed"`.
+    4. If successful, updates the order to `status: "paid"` and `deliveryStatus: false`.
+
+    ```json
+    // Success response
+    { "data": { "success": true, "message": "پرداخت با موفقیت انجام شد" } }
+    ```
+  </Step>
+</Steps>
+
+## Payment Statuses
+
+Order and payment records transition through the following statuses:
+
+| Stage | `orders.status` | `payments.status` | `orders.deliveryStatus` |
+|-------|-----------------|-------------------|------------------------|
+| Order created | `pending` | — | — |
+| Payment initiated | `pending` | `pending` | — |
+| Payment verified (success) | `paid` | `success` | `false` (not yet delivered) |
+| Payment verified (failure) | `pending` | `failed` | — |
+| Marked delivered by admin | `paid` | `success` | `true` |
+
+The admin dashboard's `/dashboard/orders` page shows all orders in the `paid` state (with `deliveryStatus: false`) as requiring action. The admin clicks "Review and confirm order" to set `deliveryStatus: true`, completing the fulfilment cycle.
